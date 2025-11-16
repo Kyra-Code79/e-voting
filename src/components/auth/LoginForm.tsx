@@ -1,86 +1,62 @@
 "use client";
 
-import React, { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Button } from "@/components/ui/button-green";
+import { Sun, Moon, LogIn, ArrowLeft } from "lucide-react";
 
-interface LoginFormProps {
-  onSuccess?: (user: User) => void;
-  redirectPath?: string;
-}
-
-interface LoginFormData {
-  identifier: string;
-  password: string;
-}
-
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  role: "admin" | "organization" | "voter";
-}
-
-interface LoginResponse {
-  success: boolean;
-  user?: User;
-  tokens?: {
-    accessToken: string;
-    refreshToken: string;
-    expiresIn: number;
-    tokenType: string;
-  };
-  message?: string;
-}
-
-export default function LoginForm({ onSuccess, redirectPath }: LoginFormProps) {
-  const [formData, setFormData] = useState<LoginFormData>({
-    identifier: "",
-    password: "",
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
+export default function Home() {
   const router = useRouter();
 
-  // Quick login presets for testing
-  const quickLogin = {
-    admin: { identifier: "admin@blockvote.com", password: "admin123!" },
-    org: { identifier: "council@university.edu", password: "org123!" },
-    voter: { identifier: "alice.johnson@student.edu", password: "voter123!" },
-  };
+  // --- Theme & Layout states ---
+  const [darkMode, setDarkMode] = useState(true);
+  const [showLogin, setShowLogin] = useState(false);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-    setError(null);
-  };
+  // --- Login states ---
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleQuickLogin = (type: keyof typeof quickLogin) => {
-    setFormData(quickLogin[type]);
-    setError(null);
-  };
+  // --- Auto Redirect if Logged In ---
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    const user = localStorage.getItem("user");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+    if (token && user) {
+      const userData = JSON.parse(user);
+
+      switch (userData.role) {
+        case "admin":
+          router.push("/admin/dashboard");
+          break;
+        case "organization":
+          router.push("/organization/dashboard");
+          break;
+        case "voter":
+          router.push("/voter/dashboard");
+          break;
+        default:
+          router.push("/auth/login");
+      }
+    }
+  }, [router]);
+
+  // --- Handle Login Logic ---
+  const handleLogin = async (e: { preventDefault: () => void }) => {
     e.preventDefault();
-    setIsLoading(true);
-    setError(null);
+    setError("");
+    setLoading(true);
 
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          identifier: formData.identifier,
-          password: formData.password,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, password }),
       });
 
-      const data: LoginResponse = await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.message || "Login failed");
@@ -96,271 +72,303 @@ export default function LoginForm({ onSuccess, redirectPath }: LoginFormProps) {
         // Store user data
         localStorage.setItem("user", JSON.stringify(data.user));
 
-        // Call success callback
-        if (onSuccess && data.user) {
-          onSuccess(data.user);
-        }
-
-        // Redirect based on user role
-        const defaultRedirectPaths = {
-          admin: "/admin/dashboard",
-          organization: "/organization/dashboard",
-          voter: "/voter/dashboard",
-        };
-
-        const targetPath = redirectPath || defaultRedirectPaths[data.user.role];
-        router.push(targetPath);
+        setTimeout(() => {
+          switch (data.user.role) {
+            case "admin":
+              router.push("/admin/dashboard");
+              break;
+            case "organization":
+              router.push("/organization/dashboard");
+              break;
+            case "voter":
+              router.push("/voter/dashboard");
+              break;
+            default:
+              router.push("/auth/login");
+          }
+        }, 300);
       } else {
-        throw new Error("Invalid response from server");
+        setError("Invalid response from server");
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Login failed";
-      setError(errorMessage);
-      console.error("Login error:", err);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (err: unknown) {
+        if (err instanceof Error) {
+          console.error(err);
+          setError(err.message || "Unexpected error occurred");
+      } else {
+          console.error("Unknown error:", err);
+          setError("Unexpected error occurred");
+        }
+      }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        {/* Header */}
-        <div>
-          <div className="mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-blue-100">
-            <svg
-              className="h-6 w-6 text-blue-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-              />
-            </svg>
-          </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Sign in to BlockVote
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Secure blockchain-based voting platform
-          </p>
-        </div>
+    <div
+      className={`relative min-h-screen flex flex-col md:flex-row transition-colors duration-500 ${
+        darkMode ? "bg-black text-white" : "bg-gray-100 text-gray-900"
+      }`}
+    >
+      {/* Theme Toggle */}
+      <motion.button
+        whileTap={{ rotate: 180, scale: 0.9 }}
+        onClick={() => setDarkMode(!darkMode)}
+        className={`absolute top-6 right-6 p-3 rounded-full shadow-md transition-all border z-20 ${
+          darkMode
+            ? "bg-neutral-900 border-emerald-800 hover:bg-emerald-800 text-emerald-300"
+            : "bg-white border-gray-300 hover:bg-emerald-100 text-emerald-700"
+        }`}
+      >
+        {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+      </motion.button>
 
-        {/* Quick Login Buttons (Development) */}
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-          <h3 className="text-sm font-medium text-yellow-800 mb-2">
-            Quick Login (Development)
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("admin")}
-              className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700"
-            >
-              Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("org")}
-              className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700"
-            >
-              Organization
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("voter")}
-              className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700"
-            >
-              Voter
-            </button>
-          </div>
-        </div>
-
-        {/* Login Form */}
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="identifier" className="sr-only">
-                Email address or username
-              </label>
-              <input
-                id="identifier"
-                name="identifier"
-                type="text"
-                autoComplete="email"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Email address or username"
-                value={formData.identifier}
-                onChange={handleInputChange}
-                disabled={isLoading}
-              />
-            </div>
-            <div className="relative">
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
-                value={formData.password}
-                onChange={handleInputChange}
-                disabled={isLoading}
-              />
-              <button
-                type="button"
-                className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                onClick={() => setShowPassword(!showPassword)}
+      {/* MOBILE ANIMATION */}
+      <div className="flex-1 flex md:hidden justify-center items-center perspective-[1200px] relative overflow-hidden">
+        <motion.div
+          key={showLogin ? "login" : "info"}
+          initial={{ rotateY: showLogin ? 180 : -180, opacity: 0 }}
+          animate={{ rotateY: 0, opacity: 1 }}
+          exit={{ rotateY: showLogin ? -180 : 180, opacity: 0 }}
+          transition={{ duration: 0.8, ease: "easeInOut" }}
+          className="w-full absolute backface-hidden"
+        >
+          {!showLogin ? (
+            // Info side
+            <motion.div className="flex flex-col justify-center items-center text-center px-6 py-16 bg-gradient-to-br from-emerald-700 to-black text-white rounded-2xl mx-4">
+              <h1 className="text-4xl font-extrabold mb-3 text-emerald-400">
+                Welcome to BlockVote
+              </h1>
+              <p className="text-base mb-6 max-w-sm opacity-90">
+                A secure blockchain-based voting system — designed for trust and transparency.
+              </p>
+              <ul className="text-emerald-200 text-sm mb-6 space-y-2">
+                <li>🔐 Secure and verifiable</li>
+                <li>🗳️ Blockchain-backed voting</li>
+                <li>🌍 Transparent results</li>
+              </ul>
+              <Button
+                onClick={() => setShowLogin(true)}
+                className="bg-emerald-500 hover:bg-emerald-600 text-black font-semibold px-6 py-2 rounded-full flex items-center gap-2"
               >
-                {showPassword ? (
-                  <svg
-                    className="h-4 w-4 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    className="h-4 w-4 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.543 7-1.275 4.057-5.065 7-9.543 7-4.477 0-8.268-2.943-9.542-7z"
-                    />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
+                <LogIn size={18} /> Go to Login
+              </Button>
+            </motion.div>
+          ) : (
+            // Login side
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className={`w-full max-w-sm mx-auto rounded-2xl shadow-2xl border ${
+                darkMode
+                  ? "bg-neutral-900 border-emerald-800"
+                  : "bg-white border-gray-300"
+              } p-8`}
+            >
+              <h2
+                className={`text-3xl font-bold mb-6 text-center ${
+                  darkMode ? "text-emerald-400" : "text-emerald-700"
+                }`}
+              >
+                Login
+              </h2>
 
-          {/* Error Message */}
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg
-                    className="h-5 w-5 text-red-400"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
+              <form onSubmit={handleLogin} className="space-y-5">
+                <div>
+                  <label
+                    className={`block font-medium mb-1 ${
+                      darkMode ? "text-gray-300" : "text-gray-700"
+                    }`}
                   >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    placeholder="Username"
+                    className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:outline-none ${
+                      darkMode
+                        ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
+                        : "border-gray-300 focus:ring-emerald-500"
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label
+                    className={`block font-medium mb-1 ${
+                      darkMode ? "text-gray-300" : "text-gray-700"
+                    }`}
+                  >
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:outline-none ${
+                      darkMode
+                        ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
+                        : "border-gray-300 focus:ring-emerald-500"
+                    }`}
+                  />
+                </div>
+
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-red-500 text-sm text-center"
+                  >
+                    {error}
+                  </motion.p>
+                )}
+
+                <Button
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 text-black py-2 rounded-lg font-semibold flex justify-center items-center gap-2"
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                      className="w-5 h-5 border-2 border-black border-t-transparent rounded-full"
                     />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">
-                    Login Failed
-                  </h3>
-                  <p className="text-sm text-red-700 mt-1">{error}</p>
-                </div>
-              </div>
-            </div>
+                  ) : (
+                    "Login"
+                  )}
+                </Button>
+              </form>
+
+              <Button
+                onClick={() => setShowLogin(false)}
+                className="mt-6 w-full text-emerald-400 hover:text-emerald-500 flex justify-center items-center gap-2"
+                variant="outline"
+              >
+                <ArrowLeft size={18} /> Back
+              </Button>
+            </motion.div>
           )}
+        </motion.div>
+      </div>
 
-          {/* Submit Button */}
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="absolute left-0 inset-y-0 flex items-center pl-3">
-                {isLoading ? (
-                  <svg
-                    className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                ) : (
-                  <svg
-                    className="h-5 w-5 text-blue-500 group-hover:text-blue-400"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
-              </span>
-              {isLoading ? "Signing in..." : "Sign in"}
-            </button>
-          </div>
-
-          {/* Additional Links */}
-          <div className="flex items-center justify-between">
-            <div className="text-sm">
-              <a
-                href="/auth/password-reset"
-                className="font-medium text-blue-600 hover:text-blue-500"
-              >
-                Forgot your password?
-              </a>
-            </div>
-            <div className="text-sm">
-              <a
-                href="/auth/register"
-                className="font-medium text-blue-600 hover:text-blue-500"
-              >
-                Register organization
-              </a>
-            </div>
-          </div>
-        </form>
-
-        {/* Footer */}
-        <div className="text-center">
-          <p className="text-xs text-gray-500">
-            © 2025 BlockVote. Secure blockchain voting platform.
+      {/* DESKTOP LAYOUT */}
+      <div className="hidden md:flex flex-1">
+        {/* Left Info */}
+        <motion.div
+          initial={{ x: -80, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="flex-1 flex flex-col justify-center bg-gradient-to-br from-emerald-700 to-black text-white p-16"
+        >
+          <h1 className="text-5xl font-extrabold mb-4 text-emerald-400">
+            Welcome to BlockVote
+          </h1>
+          <p className="text-lg mb-6 max-w-md opacity-90">
+            A secure, decentralized voting system built on blockchain technology.
+            Designed for trust, transparency, and digital democracy.
           </p>
-        </div>
+          <ul className="space-y-3 text-base list-disc list-inside text-emerald-200">
+            <li>🔐 Blockchain-backed vote integrity</li>
+            <li>🗳️ Tamper-proof, verifiable sessions</li>
+            <li>🌍 Accessible for any organization</li>
+          </ul>
+        </motion.div>
+
+        {/* Right Login */}
+        <motion.div
+          initial={{ x: 80, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="flex-1 flex justify-center items-center p-16"
+        >
+          <div
+            className={`w-full max-w-md rounded-2xl shadow-2xl border ${
+              darkMode
+                ? "bg-neutral-900 border-emerald-800"
+                : "bg-white border-gray-300"
+            } p-8`}
+          >
+            <h2
+              className={`text-3xl font-bold mb-6 text-center ${
+                darkMode ? "text-emerald-400" : "text-emerald-700"
+              }`}
+            >
+              Login to BlockVote
+            </h2>
+
+            <form onSubmit={handleLogin} className="space-y-5">
+              <div>
+                <label
+                  className={`block font-medium mb-1 ${
+                    darkMode ? "text-gray-300" : "text-gray-700"
+                  }`}
+                >
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="Enter your Username"
+                  className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:outline-none ${
+                    darkMode
+                      ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
+                      : "border-gray-300 focus:ring-emerald-500"
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label
+                  className={`block font-medium mb-1 ${
+                    darkMode ? "text-gray-300" : "text-gray-700"
+                  }`}
+                >
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:outline-none ${
+                    darkMode
+                      ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
+                      : "border-gray-300 focus:ring-emerald-500"
+                  }`}
+                />
+              </div>
+
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-red-500 text-sm text-center"
+                >
+                  {error}
+                </motion.p>
+              )}
+
+              <Button
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-black py-2 rounded-lg font-semibold flex justify-center items-center gap-2"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? (
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                    className="w-5 h-5 border-2 border-black border-t-transparent rounded-full"
+                  />
+                ) : (
+                  "Login"
+                )}
+              </Button>
+            </form>
+          </div>
+        </motion.div>
       </div>
     </div>
   );
