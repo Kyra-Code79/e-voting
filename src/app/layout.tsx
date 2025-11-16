@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "BlockVote - Secure E-Voting System",
   description: "Blockchain-based secure and transparent voting platform",
+  icons: {
+    icon: '/favicon-16x16.svg'
+  }
 };
 
 export default function RootLayout({

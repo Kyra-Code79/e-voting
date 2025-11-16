@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -62,16 +63,8 @@ export default function Home() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 bg-emerald-600 rounded-lg flex items-center justify-center shadow-md">
-              <svg
-                className="h-4 w-4 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path d="M9 12l2 2 4-4" />
-              </svg>
+             <div className="h-10 w-10">
+               <Image src="/favicon-16x16.svg" alt="BlockVote logo" width={40} height={40} />
             </div>
 
             <h1 className="text-lg font-extrabold tracking-wide text-emerald-400">
@@ -304,17 +297,105 @@ export default function Home() {
       >
         <div className="text-center max-w-7xl mx-auto px-6 text-sm">
           <div className="flex items-center justify-center gap-3 mb-2">
-            <div className="h-5 w-5 bg-emerald-600 rounded flex items-center justify-center">
-              <svg
-                className="h-3 w-3 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path d="M9 12l2 2 4-4" />
+              <div className="h-10 w-10">
+              <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                <defs>
+                  <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style={{stopColor:"#10b981", stopOpacity:1}} />
+                    <stop offset="50%" style={{stopColor:"#14b8a6", stopOpacity:1}} />
+                    <stop offset="100%" style={{stopColor:"#06b6d4", stopOpacity:1}} />
+                  </linearGradient>
+                  
+                  <filter id="glow">
+                    <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+                    <feMerge>
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+                
+                <g filter="url(#glow)">
+                  <polygon points="100,30 140,52.5 140,97.5 100,120 60,97.5 60,52.5" 
+                           fill="none" 
+                           stroke="url(#mainGradient)" 
+                           strokeWidth="3"/>
+                  
+                  <g opacity="0.8">
+                    <circle cx="100" cy="30" r="8" fill="none" stroke="#10b981" strokeWidth="2.5"/>
+                    <circle cx="100" cy="30" r="5" fill="none" stroke="#10b981" strokeWidth="1.5"/>
+                    
+                    <circle cx="140" cy="52.5" r="8" fill="none" stroke="#14b8a6" strokeWidth="2.5"/>
+                    <circle cx="140" cy="52.5" r="5" fill="none" stroke="#14b8a6" strokeWidth="1.5"/>
+                    
+                    <circle cx="140" cy="97.5" r="8" fill="none" stroke="#06b6d4" strokeWidth="2.5"/>
+                    <circle cx="140" cy="97.5" r="5" fill="none" stroke="#06b6d4" strokeWidth="1.5"/>
+                    
+                    <circle cx="100" cy="120" r="8" fill="none" stroke="#14b8a6" strokeWidth="2.5"/>
+                    <circle cx="100" cy="120" r="5" fill="none" stroke="#14b8a6" strokeWidth="1.5"/>
+                    
+                    <circle cx="60" cy="97.5" r="8" fill="none" stroke="#10b981" strokeWidth="2.5"/>
+                    <circle cx="60" cy="97.5" r="5" fill="none" stroke="#10b981" strokeWidth="1.5"/>
+                    
+                    <circle cx="60" cy="52.5" r="8" fill="none" stroke="#06b6d4" strokeWidth="2.5"/>
+                    <circle cx="60" cy="52.5" r="5" fill="none" stroke="#06b6d4" strokeWidth="1.5"/>
+                  </g>
+                  
+                  <circle cx="100" cy="30" r="3" fill="#10b981"/>
+                  <circle cx="140" cy="52.5" r="3" fill="#14b8a6"/>
+                  <circle cx="140" cy="97.5" r="3" fill="#06b6d4"/>
+                  <circle cx="100" cy="120" r="3" fill="#14b8a6"/>
+                  <circle cx="60" cy="97.5" r="3" fill="#10b981"/>
+                  <circle cx="60" cy="52.5" r="3" fill="#06b6d4"/>
+                </g>
+                
+                <g opacity="0.3">
+                  <line x1="100" y1="30" x2="140" y2="52.5" stroke="#10b981" strokeWidth="1.5"/>
+                  <line x1="140" y1="52.5" x2="140" y2="97.5" stroke="#14b8a6" strokeWidth="1.5"/>
+                  <line x1="140" y1="97.5" x2="100" y2="120" stroke="#06b6d4" strokeWidth="1.5"/>
+                  <line x1="100" y1="120" x2="60" y2="97.5" stroke="#14b8a6" strokeWidth="1.5"/>
+                  <line x1="60" y1="97.5" x2="60" y2="52.5" stroke="#10b981" strokeWidth="1.5"/>
+                  <line x1="60" y1="52.5" x2="100" y2="30" stroke="#06b6d4" strokeWidth="1.5"/>
+                </g>
+                
+                <g transform="translate(100, 75)" filter="url(#glow)">
+                  <path d="M -10 -2 L -10 -8 Q -10 -13 -5 -13 L 5 -13 Q 10 -13 10 -8 L 10 -2" 
+                        fill="none" 
+                        stroke="url(#mainGradient)" 
+                        strokeWidth="3"
+                        strokeLinecap="round"/>
+                  
+                  <rect x="-12.5" y="-2" width="25" height="13" rx="4" 
+                        fill="#0a0a0a" 
+                        stroke="url(#mainGradient)" 
+                        strokeWidth="3"/>
+                  
+                  <circle cx="0" cy="4.2" r="4" 
+                          fill="none" 
+                          stroke="#10b981" 
+                          strokeWidth="2"/>
+                  
+                  <circle cx="0" cy="4.2" r="1.5" fill="#10b981"/>
+                </g>
+                
+                <g opacity="0.4">
+                  <circle cx="80" cy="41" r="1.5" fill="#10b981"/>
+                  <circle cx="120" cy="41" r="1.5" fill="#14b8a6"/>
+                  <circle cx="150" cy="75" r="1.5" fill="#06b6d4"/>
+                  <circle cx="120" cy="109" r="1.5" fill="#14b8a6"/>
+                  <circle cx="80" cy="109" r="1.5" fill="#10b981"/>
+                  <circle cx="50" cy="75" r="1.5" fill="#06b6d4"/>
+                  
+                  <circle cx="90" cy="60" r="1" fill="#14b8a6"/>
+                  <circle cx="110" cy="60" r="1" fill="#10b981"/>
+                  <circle cx="125" cy="75" r="1" fill="#06b6d4"/>
+                  <circle cx="110" cy="90" r="1" fill="#14b8a6"/>
+                  <circle cx="90" cy="90" r="1" fill="#10b981"/>
+                  <circle cx="75" cy="75" r="1" fill="#06b6d4"/>
+                </g>
               </svg>
             </div>
+            
 
             <span className="font-semibold text-emerald-400">BlockVote</span>
           </div>
