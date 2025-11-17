@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, UserElectionParticipation } from "@prisma/client";
 import { auth } from "@/lib/auth/jwt";
 import { AuditService } from "@/lib/database/services/audit.service";
 
@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify authentication
+    // ---------- Auth ----------
     const authHeader = request.headers.get("authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
@@ -21,18 +21,35 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    const decoded = auth.verifyToken(token).payload;
-
-    if (!decoded || !decoded.userId) {
+    let decoded;
+    try {
+      decoded = auth.verifyToken(token).payload;
+    } catch (error) {
       return NextResponse.json(
         { success: false, message: "Invalid token" },
         { status: 401 },
       );
     }
+    
+
+    if (!decoded || !decoded.userId) {
+      return NextResponse.json(
+        { success: false, message: "Invalid token payload" },
+        { status: 401 },
+      );
+    }
+
+    const userId = parseInt(decoded.userId, 10);
+    if (isNaN(userId)) {
+        return NextResponse.json(
+            { success: false, message: "Invalid user ID" },
+            { status: 401 },
+        );
+    }
 
     // Get user and verify voter role
     const user = await prisma.user.findUnique({
-      where: { id: parseInt(decoded.userId) },
+      where: { id: userId },
     });
 
     if (!user || user.role !== "VOTER") {
@@ -42,10 +59,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get elections where this voter is registered
-    const voterElections = await prisma.electionVoter.findMany({
+    // --- REFAKTOR UNTUK EFISIENSI ---
+    // 1. Dapatkan semua partisipasi (dan data election terkait) dalam SATU kueri
+    //    Ini menggantikan loop N+1 dan logika `ElectionVoter` yang lama.
+    const participations = await prisma.userElectionParticipation.findMany({
       where: {
-        email: user.email, // Match by email since voters are registered by email
+        userId: user.id,
       },
       include: {
         election: {
@@ -54,92 +73,72 @@ export async function GET(request: NextRequest) {
               orderBy: { id: "asc" },
             },
             organization: {
-              select: {
-                username: true,
-                email: true,
-              },
-            },
-            _count: {
-              select: {
-                votes: true,
-              },
+              select: { username: true, email: true },
             },
           },
         },
       },
     });
 
-    // Check if voter has already voted in each election
-    const electionsWithVoteStatus = await Promise.all(
-      voterElections.map(async (voterElection) => {
-        const election = await prisma.election.findUnique({
-          where: { id: voterElection.electionId },
-          include: {
-            candidates: {
-              orderBy: { id: "asc" },
-            },
-            organization: {
-              select: {
-                username: true,
-                email: true,
-              },
-            },
-          },
-        });
+    // 2. Map hasil, tidak perlu kueri tambahan di dalam loop
+    const now = new Date();
+    const electionsWithVoteStatus = participations.map((participation) => {
+      const { election } = participation;
 
-        if (!election) {
-          return null;
-        }
+      // Status vote diambil langsung dari data partisipasi
+      const hasVotedStatus = participation.hasVoted;
+      const votedAt = participation.votedAt;
 
-        const existingVote = await prisma.vote.findFirst({
-          where: {
-            electionId: voterElection.electionId,
-            voterId: user.id,
-          },
-        });
+      // Tentukan apakah voter bisa memilih
+      const canVote =
+        !hasVotedStatus &&
+        election.status === "ACTIVE" &&
+        now >= new Date(election.startDate) &&
+        now <= new Date(election.endDate);
 
-        const now = new Date();
+      // Hitung sisa waktu
+      const remainingTime =
+        election.status === "ACTIVE" && now < new Date(election.endDate)
+          ? Math.max(0, new Date(election.endDate).getTime() - now.getTime())
+          : 0;
 
-        // Determine if voter can vote
-        const canVote =
-          !existingVote &&
-          election.status === "ACTIVE" &&
-          now >= new Date(election.startDate) &&
-          now <= new Date(election.endDate);
+      return {
+        id: election.id,
+        title: election.title,
+        description: election.description,
+        status: election.status,
+        startDate: election.startDate.toISOString(),
+        endDate: election.endDate.toISOString(),
+        organizationId: election.organizationId,
+        organization: election.organization,
+        candidates: election.candidates,
+        hasVoted: hasVotedStatus,
+        votedAt: votedAt?.toISOString(),
+        canVote,
+        remainingTime,
+        voterRegistrationId: participation.id, // Ini adalah ID partisipasi
+      };
+    });
 
-        // Calculate remaining time
-        const remainingTime =
-          election.status === "ACTIVE"
-            ? Math.max(0, new Date(election.endDate).getTime() - now.getTime())
-            : 0;
+    // --- LOGIKA SORTING BARU SESUAI PERMINTAAN ---
+    // Buat Peta urutan status
+    const statusOrder = {
+      "ACTIVE": 1,
+      "DRAFT": 2,
+      "ENDED": 3,
+    };
 
-        return {
-          id: election.id,
-          title: election.title,
-          description: election.description,
-          status: election.status,
-          startDate: election.startDate.toISOString(),
-          endDate: election.endDate.toISOString(),
-          organizationId: election.organizationId,
-          organization: election.organization,
-          candidates: election.candidates,
-          hasVoted: !!existingVote,
-          voteId: existingVote?.id,
-          votedAt: existingVote?.votedAt?.toISOString(),
-          canVote,
-          remainingTime,
-          voterRegistrationId: voterElection.id,
-        };
-      }),
-    );
+    const sortedElections = electionsWithVoteStatus.sort((a, b) => {
+      // Dapatkan nilai urutan; default ke 99 jika status tidak diketahui
+      const orderA = statusOrder[a.status as keyof typeof statusOrder] || 99;
+      const orderB = statusOrder[b.status as keyof typeof statusOrder] || 99;
 
-    // Filter out null elections and sort: active first, then by start date
-    const validElections = electionsWithVoteStatus.filter(
-      (election): election is NonNullable<typeof election> => election !== null,
-    );
-    const sortedElections = validElections.sort((a, b) => {
-      if (a.status === "ACTIVE" && b.status !== "ACTIVE") return -1;
-      if (b.status === "ACTIVE" && a.status !== "ACTIVE") return 1;
+      // 1. Urutkan berdasarkan status
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      
+      // 2. Jika status sama, urutkan berdasarkan tanggal mulai (terbaru dulu)
       return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
     });
 

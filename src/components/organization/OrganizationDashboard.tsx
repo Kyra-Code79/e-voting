@@ -1,8 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation"; // PERBAIKAN: Kembali ke 'next/navigation' sesuai file asli
+import { motion } from "framer-motion";
+import { Sun, Moon } from "lucide-react";
 
+// ---------- Types ----------
 interface User {
   id: number;
   username: string;
@@ -12,117 +15,122 @@ interface User {
   createdAt: string;
 }
 
-interface Election {
+interface ElectionSummary {
   id: number;
   title: string;
   description: string;
-  status: "draft" | "active" | "ended";
+  status: "DRAFT" | "ACTIVE" | "ENDED";
   startDate: string;
   endDate: string;
-  organizationId: number;
-  candidates: Candidate[];
-  voters: ElectionVoter[];
-  _count: {
-    votes: number;
-  };
-  createdAt: string;
-  updatedAt: string;
+  candidateCount: number;
+  voterCount: number;
+  voteCount: number;
+  participationRate: number;
 }
 
-interface Candidate {
-  id: number;
-  name: string;
-  description: string;
-  imageUrl?: string;
+interface DetailedStatistic {
   electionId: number;
+  electionTitle: string;
+  electionStatus: string;
+  totalRegisteredVoters: number;
+  totalVotesCast: number;
+  participationRate: number;
+  startDate: string;
+  endDate: string;
 }
 
-interface ElectionVoter {
-  id: number;
-  electionId: number;
-  name: string;
-  email: string;
-  username: string;
-  votedAt?: string;
-}
-
-interface ElectionStats {
+interface OrganizationStats {
   totalElections: number;
   activeElections: number;
   draftElections: number;
   endedElections: number;
-  totalVoters: number;
   totalVotes: number;
+  totalVoters: number;
   averageParticipation: number;
+  recentVotes: number;
+  recentElections: ElectionSummary[];
+  performance: {
+    mostActiveElection: { id: number; title: string; voteCount: number } | null;
+    averageVotesPerElection: number;
+    totalEngagement: number;
+  };
+  detailedStatistics: DetailedStatistic[];
 }
 
+// "Create" telah dihapus dari tipe Tab
+type Tab = "Overview" | "Elections" | "Voters" | "Results";
+
+// ---------- Component ----------
 export default function OrganizationDashboard() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<Tab>("Overview");
+  const [darkMode, setDarkMode] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const [elections, setElections] = useState<Election[]>([]);
-  const [stats, setStats] = useState<ElectionStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<OrganizationStats | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "elections" | "create" | "voters" | "results"
-  >("overview");
+  const [voters, setVoters] = useState<User[]>([]);
+  const [votersLoading, setVotersLoading] = useState(false);
+  const [votersError, setVotersError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const checkAuth = () => {
-      const storedUser = localStorage.getItem("user");
-      const token = localStorage.getItem("accessToken");
-
-      if (!storedUser || !token) {
-        router.push("/auth/login");
-        return;
-      }
-
-      const userData = JSON.parse(storedUser);
-      if (userData.role !== "organization") {
-        router.push("/auth/login");
-        return;
-      }
-
-      setUser(userData);
-    };
-
-    checkAuth();
-    loadDashboardData();
-  }, [router]);
-
-  const loadDashboardData = async () => {
-    setIsLoading(true);
-    setError(null);
-
+  // Fungsi fetch voters
+  const loadVoters = async (token: string) => {
+    setVotersLoading(true);
+    setVotersError(null);
     try {
-      const token = localStorage.getItem("accessToken");
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      };
-
-      // Load organization elections
-      const electionsResponse = await fetch("/api/organization/elections", {
-        headers,
+      const res = await fetch("/api/organization/voters", {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (electionsResponse.ok) {
-        const electionsData = await electionsResponse.json();
-        setElections(electionsData.data || []);
-      }
-
-      // Load organization statistics
-      const statsResponse = await fetch("/api/organization/stats", {
-        headers,
-      });
-      if (statsResponse.ok) {
-        const statsData = await statsResponse.json();
-        setStats(statsData.data);
-      }
+      const data = await res.json();
+      if (data.success) setVoters(data.data);
+      else setVotersError(data.message || "Failed to load voters");
     } catch (err) {
-      console.error("Error loading dashboard data:", err);
-      setError("Failed to load dashboard data");
+      console.error(err);
+      setVotersError("Failed to load voters");
     } finally {
-      setIsLoading(false);
+      setVotersLoading(false);
+    }
+  };
+
+  // ---------- Auth check ----------
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    const token = localStorage.getItem("accessToken");
+    if (!storedUser || !token) {
+      router.push("/auth/login");
+      return;
+    }
+    const userData = JSON.parse(storedUser);
+    if (userData.role !== "organization") {
+      router.push("/auth/login");
+      return;
+    }
+    setUser(userData);
+    loadStats(token);
+  }, [router]);
+  // ---------- Fetch voters setiap kali tab "Voters" aktif ----------
+  useEffect(() => {
+    if (activeTab === "Voters") {
+      const token = localStorage.getItem("accessToken");
+      if (token) loadVoters(token);
+    }
+  }, [activeTab]);
+
+  // ---------- Load stats ----------
+  const loadStats = async (token: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const res = await fetch("/api/organization/stats", { headers });
+      const data = await res.json();
+      if (data.success) setStats(data.data);
+      else setError(data.message || "Failed to load stats");
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load stats");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -133,59 +141,16 @@ export default function OrganizationDashboard() {
     router.push("/auth/login");
   };
 
-  const handleCreateElection = () => {
-    // TODO: Implement election creation modal
-    alert(
-      "Election creation functionality will be implemented in the next phase",
-    );
-  };
-
-  const handleDeleteElection = async (electionId: number) => {
-    if (!confirm("Are you sure you want to delete this election?")) return;
-
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await fetch(
-        `/api/organization/elections/${electionId}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      if (response.ok) {
-        await loadDashboardData();
-      } else {
-        setError("Failed to delete election");
-      }
-    } catch (err) {
-      console.error("Error deleting election:", err);
-      setError("Failed to delete election");
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const badges = {
-      DRAFT: "bg-gray-100 text-gray-800",
-      ACTIVE: "bg-green-100 text-green-800",
-      ENDED: "bg-blue-100 text-blue-800",
-    };
-    return badges[status as keyof typeof badges] || badges.DRAFT;
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
-  };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -194,71 +159,90 @@ export default function OrganizationDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className={
+        darkMode
+          ? "min-h-screen flex flex-col bg-gradient-to-br from-black via-neutral-900 to-emerald-950 text-white"
+          : "min-h-screen flex flex-col bg-gradient-to-br from-gray-100 via-gray-50 to-white text-gray-900"
+      }
+    >
+      {/* Theme toggle */}
+      <div className="fixed top-4 right-4 z-50">
+        <motion.button
+          whileTap={{ rotate: 180, scale: 0.95 }}
+          onClick={() => setDarkMode((s) => !s)}
+          className={`p-2 rounded-full border shadow-sm backdrop-blur-md ${
+            darkMode
+              ? "bg-neutral-900/80 border-emerald-700 text-emerald-300"
+              : "bg-white/90 border-gray-300 text-emerald-700"
+          }`}
+        >
+          {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+        </motion.button>
+      </div>
+
       {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Organization Dashboard
-              </h1>
-              <p className="text-sm text-gray-500">
-                BlockVote Election Management
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-sm">
-                <p className="text-gray-900 font-medium">{user?.username}</p>
-                <p className="text-gray-500">{user?.email}</p>
-              </div>
-              <button
-                onClick={() => router.push("/settings")}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Settings
-              </button>
-              <button
-                onClick={handleLogout}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Logout
-              </button>
-            </div>
+      <header
+        className={
+          darkMode
+            ? "bg-neutral-950/30 border-b border-emerald-800/30 sticky top-0 z-40"
+            : "bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm"
+        }
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center py-4">
+          <div>
+            <h1 className="text-xl font-bold text-emerald-600">
+              Organization Dashboard
+            </h1>
+            <p className={darkMode ? "text-gray-300" : "text-gray-700"}>
+              BlockVote Election Management
+            </p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => router.push("/settings")}
+              className={`px-3 py-2 rounded-md text-sm font-medium ${
+                darkMode
+                  ? "bg-emerald-700/10 border border-emerald-700 text-emerald-300"
+                  : "bg-emerald-100 border border-emerald-600 text-emerald-700"
+              }`}
+            >
+              Settings
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-3 py-2 rounded-md text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Navigation Tabs */}
-      <nav className="bg-white shadow-sm">
+      {/* Tabs */}
+      <nav
+        className={
+          darkMode
+            ? "bg-neutral-900/40 border-b border-emerald-800/30"
+            : "bg-white shadow-sm border-b border-gray-200"
+        }
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {[
-              { key: "overview", label: "Overview" },
-              { key: "elections", label: "Elections" },
-              { key: "create", label: "Create Election" },
-              { key: "voters", label: "Voter Management" },
-              { key: "results", label: "Results & Analytics" },
-            ].map((tab) => (
+          <div className="flex space-x-6">
+            {/* "Create" telah dihapus dari array .map() */}
+            {["Overview", "Elections", "Voters", "Results"].map((tab) => (
               <button
-                key={tab.key}
-                onClick={() =>
-                  setActiveTab(
-                    tab.key as
-                      | "overview"
-                      | "elections"
-                      | "create"
-                      | "voters"
-                      | "results",
-                  )
-                }
+                key={tab}
+                onClick={() => setActiveTab(tab as Tab)}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.key
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  activeTab === tab
+                    ? "border-emerald-600 text-emerald-600"
+                    : darkMode
+                    ? "border-transparent text-gray-300 hover:text-white hover:border-emerald-300"
+                    : "border-transparent text-gray-700 hover:text-gray-900 hover:border-emerald-400"
                 }`}
               >
-                {tab.label}
+                {tab}
               </button>
             ))}
           </div>
@@ -266,280 +250,337 @@ export default function OrganizationDashboard() {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        {error && (
-          <div className="mb-6 rounded-md bg-red-50 p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-5 w-5 text-red-400"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Error</h3>
-                <p className="text-sm text-red-700 mt-1">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
+      <main className="flex-grow max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-8">
+        {error && <p className="text-red-500">{error}</p>}
 
-        {/* Overview Tab */}
-        {activeTab === "overview" && (
-          <div className="space-y-6">
-            {/* Statistics Cards */}
+        {/* Overview */}
+        {activeTab === "Overview" && stats && (
+          <div className="space-y-8">
+            {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg
-                        className="h-6 w-6 text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-                        />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Total Elections
-                        </dt>
-                        <dd className="text-lg font-medium text-gray-900">
-                          {stats?.totalElections || 0}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg
-                        className="h-6 w-6 text-green-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Active Elections
-                        </dt>
-                        <dd className="text-lg font-medium text-gray-900">
-                          {stats?.activeElections || 0}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg
-                        className="h-6 w-6 text-blue-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"
-                        />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Total Voters
-                        </dt>
-                        <dd className="text-lg font-medium text-gray-900">
-                          {stats?.totalVoters || 0}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg
-                        className="h-6 w-6 text-purple-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"
-                        />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Participation Rate
-                        </dt>
-                        <dd className="text-lg font-medium text-gray-900">
-                          {stats?.averageParticipation?.toFixed(1) || 0}%
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {[
+                { label: "Total Elections", value: stats.totalElections },
+                { label: "Active Elections", value: stats.activeElections },
+                { label: "Total Voters", value: stats.totalVoters },
+                {
+                  label: "Participation Rate",
+                  value: `${stats.averageParticipation.toFixed(1)}%`,
+                },
+              ].map((card, i) => (
+                <motion.div
+                  key={i}
+                  whileHover={{
+                    scale: 1.03,
+                    boxShadow: darkMode
+                      ? "0 0 15px rgba(72, 187, 120, 0.5)"
+                      : "0 4px 12px rgba(0,0,0,0.1)",
+                  }}
+                  className={`p-5 rounded-lg border shadow-lg transition-all duration-300 ${
+                    darkMode
+                      ? "bg-gradient-to-r from-emerald-700/60 via-emerald-800/60 to-emerald-900/60 border-emerald-800 text-white"
+                      : "bg-white border-gray-200 text-gray-900"
+                  }`}
+                >
+                  <p className={darkMode ? "text-gray-200" : "text-gray-700"}>
+                    {card.label}
+                  </p>
+                  <p className="text-2xl font-bold mt-2">{card.value}</p>
+                </motion.div>
+              ))}
             </div>
 
-            {/* Recent Elections */}
-            <div className="bg-white shadow rounded-lg">
-              <div className="px-4 py-5 sm:p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900">
-                    Recent Elections
-                  </h3>
-                  <button
-                    onClick={handleCreateElection}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-                  >
-                    Create New Election
-                  </button>
-                </div>
-                <div className="overflow-hidden">
-                  {elections.length === 0 ? (
-                    <div className="text-center py-12">
-                      <svg
-                        className="mx-auto h-12 w-12 text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
+            {/* Active Elections */}
+            <div>
+              <h2 className="text-xl font-semibold text-emerald-300 mb-4">
+                Active Elections
+              </h2>
+              {/* PERBAIKAN: Gunakan recentElections karena detailedStatistics mungkin kosong */}
+              {stats.recentElections.filter(
+                (e) => e.status === "ACTIVE"
+              ).length === 0 ? (
+                <p className="text-gray-400">No active elections.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {stats.recentElections
+                    .filter((e) => e.status === "ACTIVE")
+                    .map((e) => (
+                      <motion.div
+                        key={e.id}
+                        whileHover={{
+                          scale: 1.02,
+                          boxShadow: darkMode
+                            ? "0 0 10px rgba(72, 187, 120, 0.4)"
+                            : "0 4px 10px rgba(0,0,0,0.08)",
+                        }}
+                        className={`p-4 rounded-lg border shadow transition-all duration-300 ${
+                          darkMode
+                            ? "bg-neutral-900/70 border-emerald-800 text-white"
+                            : "bg-white border-gray-200 text-gray-900"
+                        }`}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-                        />
-                      </svg>
-                      <h3 className="mt-2 text-sm font-medium text-gray-900">
-                        No elections yet
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Get started by creating your first election.
-                      </p>
-                      <div className="mt-6">
-                        <button
-                          onClick={handleCreateElection}
-                          className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                        <h3 className="text-lg font-semibold text-emerald-600">
+                          {e.title}
+                        </h3>
+                        <p
+                          className={
+                            darkMode ? "text-gray-300" : "text-gray-700"
+                          }
                         >
-                          Create Election
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {elections.slice(0, 5).map((election) => (
-                        <div
-                          key={election.id}
-                          className="border border-gray-200 rounded-lg p-4"
+                          Registered Voters: {e.voterCount}
+                        </p>
+                        <p
+                          className={
+                            darkMode ? "text-gray-300" : "text-gray-700"
+                          }
                         >
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <h4 className="text-sm font-medium text-gray-900">
-                                {election.title}
-                              </h4>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {election.description}
-                              </p>
-                              <div className="flex items-center mt-2 space-x-4">
-                                <span
-                                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                                    election.status,
-                                  )}`}
-                                >
-                                  {election.status}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  {formatDate(election.startDate)} -{" "}
-                                  {formatDate(election.endDate)}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  {election._count.votes} votes
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex space-x-2 ml-4">
-                              <button className="text-blue-600 hover:text-blue-900 text-sm font-medium">
-                                Edit
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleDeleteElection(election.id)
-                                }
-                                className="text-red-600 hover:text-red-900 text-sm font-medium"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                          Votes Cast: {e.voteCount}
+                        </p>
+                        <p
+                          className={
+                            darkMode ? "text-gray-300" : "text-gray-700"
+                          }
+                        >
+                          Participation: {e.participationRate}%
+                        </p>
+                        <p
+                          className={`${
+                            darkMode ? "text-gray-400" : "text-gray-500"
+                          } text-xs mt-1`}
+                        >
+                          {formatDate(e.startDate)} - {formatDate(e.endDate)}
+                        </p>
+                      </motion.div>
+                    ))}
                 </div>
-              </div>
+              )}
+            </div>
+
+            {/* Draft Elections (BARU) */}
+            <div>
+              <h2 className="text-xl font-semibold text-emerald-300 mb-4">
+                Draft Elections
+              </h2>
+              {/* PERBAIKAN: Gunakan recentElections karena detailedStatistics mungkin kosong */}
+              {stats.recentElections.filter(
+                (e) => e.status === "DRAFT"
+              ).length === 0 ? (
+                <p className="text-gray-400">No draft elections.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {stats.recentElections
+                    .filter((e) => e.status === "DRAFT")
+                    .map((e) => (
+                      <motion.div
+                        key={e.id}
+                        whileHover={{
+                          scale: 1.02,
+                          boxShadow: darkMode
+                            ? "0 0 10px rgba(72, 187, 120, 0.4)"
+                            : "0 4px 10px rgba(0,0,0,0.08)",
+                        }}
+                        className={`p-4 rounded-lg border shadow transition-all duration-300 ${
+                          darkMode
+                            ? "bg-neutral-900/70 border-emerald-800 text-white"
+                            : "bg-white border-gray-200 text-gray-900"
+                        }`}
+                      >
+                        <h3 className="text-lg font-semibold text-emerald-600">
+                          {e.title}
+                        </h3>
+                        <p
+                          className={
+                            darkMode ? "text-gray-300" : "text-gray-700"
+                          }
+                        >
+                          Status: {e.status}
+                        </p>
+                        <p
+                          className={
+                            darkMode ? "text-gray-300" : "text-gray-700"
+                          }
+                        >
+                          Registered Voters: {e.voterCount}
+                        </p>
+                        <p
+                          className={
+                            darkMode ? "text-gray-300" : "text-gray-700"
+                          }
+                        >
+                          Votes Cast: {e.voteCount}
+                        </p>
+                        <p
+                          className={`${
+                            darkMode ? "text-gray-400" : "text-gray-500"
+                          } text-xs mt-1`}
+                        >
+                          {formatDate(e.startDate)} - {formatDate(e.endDate)}
+                        </p>
+                      </motion.div>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Other tabs placeholder */}
-        {activeTab !== "overview" && (
-          <div className="bg-white shadow rounded-lg">
-            <div className="px-4 py-5 sm:p-6">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-                {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}{" "}
-                Management
-              </h3>
-              <p className="text-gray-600">
-                This section is under development. Coming soon!
+        {/* Elections Tab */}
+        {activeTab === "Elections" && stats && (
+          <div className="space-y-6">
+            {/* --- Tombol Create Baru Ditambahkan Di Sini --- */}
+            <div className="flex justify-between items-center mb-4">
+              <h2
+                className={`text-xl font-semibold ${
+                  darkMode ? "text-emerald-300" : "text-gray-800"
+                }`}
+              >
+                All Elections
+              </h2>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => router.push("/elections/create")} // PERBAIKAN: Arahkan ke route, bukan komponen
+                className={`px-4 py-2 rounded-lg text-sm font-medium shadow-md transition-colors ${
+                  darkMode
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                }`}
+              >
+                + Create New Election
+              </motion.button>
+            </div>
+            {/* --- Akhir Tombol Create Baru --- */}
+
+            {/* PERBAIKAN: Gunakan recentElections karena detailedStatistics mungkin kosong */}
+            {stats.recentElections.length === 0 ? (
+              <p className={darkMode ? "text-gray-300" : "text-gray-700"}>
+                No elections available. Click &quot;Create New Election&quot; to get
+                started.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* PERBAIKAN: Gunakan recentElections */}
+                {stats.recentElections.map((e) => (
+                  <motion.div
+                    key={e.id}
+                    whileHover={{
+                      scale: 1.02,
+                      boxShadow: darkMode
+                        ? "0 0 10px rgba(72, 187, 120, 0.4)"
+                        : "0 4px 10px rgba(0,0,0,0.08)",
+                    }}
+                    className={`p-4 rounded-lg border shadow transition-all duration-300 ${
+                      darkMode
+                        ? "bg-neutral-900/70 border-emerald-800 text-white"
+                        : "bg-white border-gray-200 text-gray-900"
+                    }`}
+                  >
+                    <h3 className="text-lg font-semibold text-emerald-600">
+                      {e.title}
+                    </h3>
+                    <p
+                      className={darkMode ? "text-gray-300" : "text-gray-700"}
+                    >
+                      Status: {e.status}
+                    </p>
+                    <p
+                      className={darkMode ? "text-gray-300" : "text-gray-700"}
+                    >
+                      Registered Voters: {e.voterCount}
+                    </p>
+                    <p
+                      className={darkMode ? "text-gray-300" : "text-gray-700"}
+                    >
+                      Votes Cast: {e.voteCount}
+                    </p>
+                    <p
+                      className={darkMode ? "text-gray-300" : "text-gray-700"}
+                    >
+                      Participation: {e.participationRate}%
+                    </p>
+                    <p
+                      className={`${
+                        darkMode ? "text-gray-400" : "text-gray-500"
+                      } text-xs mt-1`}
+                    >
+                      {formatDate(e.startDate)} - {formatDate(e.endDate)}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Di bagian render, tambahkan tab Voters */}
+        {activeTab === "Voters" && (
+          <div className="overflow-x-auto">
+            {votersLoading ? (
+              <p className="text-gray-400">Loading voters...</p>
+            ) : votersError ? (
+              <p className="text-red-500">{votersError}</p>
+            ) : voters.length === 0 ? (
+              <p className="text-gray-400">No voters found.</p>
+            ) : (
+              <table className="min-w-full border border-gray-300 dark:border-emerald-700 text-left">
+                <thead className="bg-gray-100 dark:bg-neutral-800">
+                  <tr>
+                    <th className="px-4 py-2 border-b">ID</th>
+                    <th className="px-4 py-2 border-b">Username</th>
+                    <th className="px-4 py-2 border-b">Email</th>
+                    <th className="px-4 py-2 border-b">Role</th>
+                    <th className="px-4 py-2 border-b">Status</th>
+                    <th className="px-4 py-2 border-b">Created At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {voters.map((v) => (
+                    <tr
+                      key={v.id}
+                      className="hover:bg-gray-50 dark:hover:bg-neutral-700"
+                    >
+                      <td className="px-4 py-2 border-b">{v.id}</td>
+                      <td className="px-4 py-2 border-b">{v.username}</td>
+                      <td className="px-4 py-2 border-b">{v.email}</td>
+                      <td className="px-4 py-2 border-b capitalize">
+                        {v.role}
+                      </td>
+                      <td className="px-4 py-2 border-b capitalize">
+                        {v.status}
+                      </td>
+                      <td className="px-4 py-2 border-b">
+                        {formatDate(v.createdAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Other tabs - Sekarang hanya akan menangani "Results" */}
+        {activeTab !== "Overview" &&
+          activeTab !== "Elections" &&
+          activeTab !== "Voters" && (
+            <div
+              className={`mt-6 p-6 rounded-lg shadow ${
+                darkMode
+                  ? "bg-neutral-900/70 border border-emerald-800 text-white"
+                  : "bg-white border-gray-200 text-gray-900"
+              }`}
+            >
+              <h2 className="text-xl font-semibold text-emerald-600 capitalize">
+                {activeTab} Management
+              </h2>
+              <p
+                className={`${
+                  darkMode ? "text-gray-300" : "text-gray-700"
+                } text-xs mt-2`}
+              >
+                This section is under development.
               </p>
             </div>
-          </div>
-        )}
+          )}
       </main>
     </div>
   );

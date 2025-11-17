@@ -174,7 +174,7 @@ async function main() {
     elections.push(activeElection);
 
     // Draft election
-    const draftElection = await prisma.election.create({
+    const draftElection1 = await prisma.election.create({
       data: {
         title: "Computer Science Department Representative Election",
         description:
@@ -185,7 +185,18 @@ async function main() {
         endDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), // Ends in 3 weeks
       },
     });
-    elections.push(draftElection);
+    const draftElection2 = await prisma.election.create({
+      data: {
+        title: "Spring Semester Project Funding Vote",
+        description:
+          "Students vote on which projects get funding for Spring 2026.",
+        organizationId: org2.id,
+        status: "DRAFT",
+        startDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // Starts in 2 weeks
+        endDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), // Ends in 3 weeks
+      },
+    });
+    elections.push(draftElection1,draftElection2);
 
     // Ended election
     const endedElection = await prisma.election.create({
@@ -197,7 +208,7 @@ async function main() {
         status: "ENDED",
         startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), // Started 30 days ago
         endDate: new Date(Date.now() - 23 * 24 * 60 * 60 * 1000), // Ended 23 days ago
-      },
+      }
     });
     elections.push(endedElection);
 
@@ -235,7 +246,7 @@ async function main() {
     const draftCandidates = await Promise.all([
       prisma.candidate.create({
         data: {
-          electionId: draftElection.id,
+          electionId: draftElection1.id,
           name: "Alex Kumar",
           description:
             "PhD candidate focused on improving graduate student representation and research opportunities.",
@@ -243,10 +254,26 @@ async function main() {
       }),
       prisma.candidate.create({
         data: {
-          electionId: draftElection.id,
+          electionId: draftElection1.id,
           name: "Lisa Wang",
           description:
             "Senior undergraduate with experience in curriculum committee and student mentoring programs.",
+        },
+      }),
+      prisma.candidate.create({
+        data: {
+          electionId: draftElection2.id,
+          name: "Bambang",
+          description:
+            "Senior undergraduate with experience in curriculum committee and student mentoring programs.",
+        },
+      }),
+      prisma.candidate.create({
+        data: {
+          electionId: draftElection2.id,
+          name: "Alex",
+          description:
+            "PhD candidate focused on improving graduate student representation and research opportunities.",
         },
       }),
     ]);
@@ -465,7 +492,7 @@ async function main() {
         totalUsers: await prisma.user.count(),
         totalElections: await prisma.election.count(),
         totalVotes: await prisma.vote.count(),
-        totalBlocks: 0,
+        totalBlocks: await prisma.blockchainBlock.count(), // FIX: Hitung blok yang sebenarnya
         averageBlockTime: 0,
         systemUptime: 0,
       },
@@ -559,8 +586,8 @@ async function main() {
         userId: org2.id,
         action: "CREATE",
         resource: "ELECTION",
-        resourceId: draftElection.id,
-        details: `Created draft election: ${draftElection.title}`,
+        resourceId: draftElection1.id, // FIX: Referensi ke draftElection1
+        details: `Created draft election: ${draftElection1.title}`, // FIX: Referensi ke draftElection1
         ipAddress: "10.0.0.22",
         userAgent: "Mozilla/5.0 (Admin Dashboard)",
       },
@@ -603,7 +630,7 @@ async function main() {
       `👤 Users created: ${voters.length + organizations.length + 1} (1 admin, ${organizations.length} organizations, ${voters.length} voters)`,
     );
     console.log(
-      `🗳️  Elections created: ${elections.length} (1 active, 1 draft, 1 ended)`,
+      `🗳️  Elections created: ${elections.length} (1 active, 2 draft, 1 ended)`, // FIX: Perbarui jumlah draf
     );
     console.log(
       `🏃‍♂️ Candidates created: ${activeCandidates.length + draftCandidates.length + endedCandidates.length}`,
@@ -629,9 +656,9 @@ async function main() {
 
     console.log("\n📊 Election Status:");
     console.log(
-      `Active Election: "${activeElection.title}" (3 votes cast, ${voters.length - 6} pending invites)`,
+      `Active Election: "${activeElection.title}" (3 votes cast, 2 pending invites)`, // FIX: Klarifikasi jumlah pending
     );
-    console.log(`Draft Election: "${draftElection.title}" (not yet started)`);
+    console.log(`Draft Election: "${draftElection1.title}" (not yet started)`); // FIX: Referensi ke draftElection1
     console.log(
       `Ended Election: "${endedElection.title}" (5/6 voters participated)`,
     );

@@ -1,419 +1,370 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, FormEvent, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Sun, Moon, Plus, X, ArrowLeft } from "lucide-react";
 
-interface Candidate {
-  id: string;
+// Tipe untuk kandidat
+interface CandidateInput {
   name: string;
   description: string;
-  imageUrl?: string;
 }
 
-interface ElectionFormData {
-  title: string;
-  description: string;
-  startDate: string;
-  endDate: string;
-  candidates: Candidate[];
-}
+// Komponen Halaman Create Election
+export default function CreateElectionPage() {
+  const router = useRouter();
+  const [darkMode, setDarkMode] = useState(true);
 
-interface ElectionCreatorProps {
-  onClose: () => void;
-  onSubmit: (data: ElectionFormData) => Promise<void>;
-  isLoading?: boolean;
-}
+  // State untuk form
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  
+  // State untuk manajemen kandidat
+  const [candidates, setCandidates] = useState<CandidateInput[]>([]);
+  const [newCandidateName, setNewCandidateName] = useState("");
+  const [newCandidateDesc, setNewCandidateDesc] = useState("");
 
-export default function ElectionCreator({
-  onClose,
-  onSubmit,
-  isLoading = false,
-}: ElectionCreatorProps) {
-  const [formData, setFormData] = useState<ElectionFormData>({
-    title: "",
-    description: "",
-    startDate: "",
-    endDate: "",
-    candidates: [
-      { id: "1", name: "", description: "" },
-      { id: "2", name: "", description: "" },
-    ],
-  });
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // State untuk UI
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-    // Clear error when user starts typing
-    if (errors[name]) {
-      setErrors((prev) => ({
-        ...prev,
-        [name]: "",
-      }));
+  // Mengatur tanggal minimum untuk input datetime-local
+  const [minDate, setMinDate] = useState("");
+  useEffect(() => {
+    const now = new Date();
+    // Format ke YYYY-MM-DDTHH:MM (ISO 8601 tanpa detik/ms)
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    setMinDate(now.toISOString().slice(0, 16));
+  }, []);
+
+  // Handler untuk menambah kandidat baru
+  const handleAddCandidate = () => {
+    if (newCandidateName.trim() && newCandidateDesc.trim()) {
+      setCandidates([...candidates, { name: newCandidateName, description: newCandidateDesc }]);
+      setNewCandidateName("");
+      setNewCandidateDesc("");
+    } else {
+      setError("Candidate name and description are required.");
     }
   };
 
-  const handleCandidateChange = (
-    candidateId: string,
-    field: "name" | "description" | "imageUrl",
-    value: string
-  ) => {
-    setFormData((prev) => ({
-      ...prev,
-      candidates: prev.candidates.map((candidate) =>
-        candidate.id === candidateId
-          ? { ...candidate, [field]: value }
-          : candidate
-      ),
-    }));
-    // Clear candidate errors
-    const errorKey = `candidate-${candidateId}-${field}`;
-    if (errors[errorKey]) {
-      setErrors((prev) => ({
-        ...prev,
-        [errorKey]: "",
-      }));
-    }
+  // Handler untuk menghapus kandidat
+  const handleRemoveCandidate = (indexToRemove: number) => {
+    setCandidates(candidates.filter((_, index) => index !== indexToRemove));
   };
 
-  const addCandidate = () => {
-    const newId = (formData.candidates.length + 1).toString();
-    setFormData((prev) => ({
-      ...prev,
-      candidates: [
-        ...prev.candidates,
-        { id: newId, name: "", description: "" },
-      ],
-    }));
-  };
-
-  const removeCandidate = (candidateId: string) => {
-    if (formData.candidates.length > 2) {
-      setFormData((prev) => ({
-        ...prev,
-        candidates: prev.candidates.filter((c) => c.id !== candidateId),
-      }));
-    }
-  };
-
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    // Basic validation
-    if (!formData.title.trim()) {
-      newErrors.title = "Election title is required";
-    }
-    if (!formData.description.trim()) {
-      newErrors.description = "Election description is required";
-    }
-    if (!formData.startDate) {
-      newErrors.startDate = "Start date is required";
-    }
-    if (!formData.endDate) {
-      newErrors.endDate = "End date is required";
-    }
-
-    // Date validation
-    if (formData.startDate && formData.endDate) {
-      const start = new Date(formData.startDate);
-      const end = new Date(formData.endDate);
-      const now = new Date();
-
-      if (start < now) {
-        newErrors.startDate = "Start date cannot be in the past";
-      }
-      if (end <= start) {
-        newErrors.endDate = "End date must be after start date";
-      }
-    }
-
-    // Candidate validation
-    let validCandidates = 0;
-    formData.candidates.forEach((candidate) => {
-      if (!candidate.name.trim()) {
-        newErrors[`candidate-${candidate.id}-name`] = "Candidate name is required";
-      } else {
-        validCandidates++;
-      }
-      if (!candidate.description.trim()) {
-        newErrors[`candidate-${candidate.id}-description`] =
-          "Candidate description is required";
-      }
-    });
-
-    if (validCandidates < 2) {
-      newErrors.candidates = "At least 2 valid candidates are required";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Handler untuk submit form
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setSuccessMessage(null);
 
-    if (!validateForm()) {
+    // --- Validasi Front-end ---
+    if (!title || !description || !startDate || !endDate) {
+      setError("Please fill in all election details (title, description, start date, end date).");
+      return;
+    }
+    if (candidates.length < 2) {
+      setError("At least 2 candidates are required.");
+      return;
+    }
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const now = new Date();
+
+    if (start < now) {
+      setError("Start date cannot be in the past.");
+      return;
+    }
+    if (end <= start) {
+      setError("End date must be after the start date.");
       return;
     }
 
+    setIsLoading(true);
+
     try {
-      await onSubmit(formData);
-    } catch (error) {
-      console.error("Error creating election:", error);
-    }
-  };
+      const token = localStorage.getItem("accessToken");
+      if (!token) {
+        throw new Error("Authentication token not found.");
+      }
 
-  const getMinDateTime = () => {
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + 30); // At least 30 minutes from now
-    return now.toISOString().slice(0, 16);
-  };
+      const response = await fetch("/api/organization/elections", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title,
+          description,
+          startDate,
+          endDate,
+          candidates, // Kirim array kandidat
+        }),
+      });
 
-  const getMinEndDateTime = () => {
-    if (formData.startDate) {
-      const start = new Date(formData.startDate);
-      start.setHours(start.getHours() + 1); // At least 1 hour after start
-      return start.toISOString().slice(0, 16);
+      const data = await response.json();
+
+      if (data.success) {
+        setSuccessMessage("Election created successfully! Redirecting to dashboard...");
+        // Reset form (opsional)
+        setTitle("");
+        setDescription("");
+        setStartDate("");
+        setEndDate("");
+        setCandidates([]);
+        // Redirect kembali ke dashboard setelah 2 detik
+        setTimeout(() => {
+          router.push("/dashboard/organization"); // Asumsi path dashboard Anda
+        }, 2000);
+      } else {
+        setError(data.message || "Failed to create election.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+    } finally {
+      setIsLoading(false);
     }
-    return getMinDateTime();
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-        {/* Background overlay */}
-        <div
-          className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
-          onClick={onClose}
-        ></div>
+    <div
+      className={
+        darkMode
+          ? "min-h-screen flex flex-col bg-gradient-to-br from-black via-neutral-900 to-emerald-950 text-white"
+          : "min-h-screen flex flex-col bg-gradient-to-br from-gray-100 via-gray-50 to-white text-gray-900"
+      }
+    >
+      {/* Theme toggle (opsional, tapi konsisten) */}
+      <div className="fixed top-4 right-4 z-50">
+        <motion.button
+          whileTap={{ rotate: 180, scale: 0.95 }}
+          onClick={() => setDarkMode((s) => !s)}
+          className={`p-2 rounded-full border shadow-sm backdrop-blur-md ${
+            darkMode
+              ? "bg-neutral-900/80 border-emerald-700 text-emerald-300"
+              : "bg-white/90 border-gray-300 text-emerald-700"
+          }`}
+        >
+          {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+        </motion.button>
+      </div>
 
-        {/* Modal panel */}
-        <div className="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full sm:p-6">
-          <form onSubmit={handleSubmit}>
-            {/* Header */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg leading-6 font-medium text-gray-900">
-                  Create New Election
-                </h3>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="bg-white rounded-md text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+      {/* Konten Utama */}
+      <main className="flex-grow max-w-3xl mx-auto py-12 px-4 sm:px-6 lg:px-8 space-y-8 w-full">
+        <div
+          className={`p-8 rounded-lg border shadow-lg transition-all duration-300 ${
+            darkMode
+              ? "bg-neutral-900/70 border-emerald-800 text-white"
+              : "bg-white border-gray-200 text-gray-900"
+          }`}
+        >
+          <button
+            onClick={() => router.back()}
+            className={`flex items-center space-x-2 text-sm mb-6 ${
+              darkMode ? "text-emerald-300 hover:text-emerald-200" : "text-emerald-700 hover:text-emerald-600"
+            }`}
+          >
+            <ArrowLeft size={16} />
+            <span>Back to Dashboard</span>
+          </button>
+
+          <h1 className="text-2xl font-bold text-emerald-600 mb-6">
+            Create New Election
+          </h1>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Detail Election */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Title</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className={`w-full p-2 rounded-md border ${
+                    darkMode
+                      ? "bg-neutral-800 border-emerald-700"
+                      : "bg-gray-50 border-gray-300"
+                  }`}
+                  placeholder="e.g., Student Council President 2024"
+                />
               </div>
-              <p className="mt-1 text-sm text-gray-600">
-                Create a secure blockchain-based election for your organization.
-              </p>
+              <div>
+                <label className="block text-sm font-medium mb-1">Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  className={`w-full p-2 rounded-md border ${
+                    darkMode
+                      ? "bg-neutral-800 border-emerald-700"
+                      : "bg-gray-50 border-gray-300"
+                  }`}
+                  placeholder="A brief description of the election."
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Start Date</label>
+                  <input
+                    type="datetime-local"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    min={minDate}
+                    className={`w-full p-2 rounded-md border ${
+                      darkMode
+                        ? "bg-neutral-800 border-emerald-700"
+                        : "bg-gray-50 border-gray-300"
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">End Date</label>
+                  <input
+                    type="datetime-local"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    min={startDate || minDate} // End date tidak bisa sebelum start date
+                    className={`w-full p-2 rounded-md border ${
+                      darkMode
+                        ? "bg-neutral-800 border-emerald-700"
+                        : "bg-gray-50 border-gray-300"
+                    }`}
+                  />
+                </div>
+              </div>
             </div>
 
-            {/* Election Details */}
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-6">
-                {/* Title */}
-                <div>
-                  <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-                    Election Title *
-                  </label>
-                  <input
-                    type="text"
-                    name="title"
-                    id="title"
-                    value={formData.title}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="e.g., Student Council President Election 2024"
-                  />
-                  {errors.title && <p className="mt-1 text-sm text-red-600">{errors.title}</p>}
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-                    Election Description *
-                  </label>
-                  <textarea
-                    name="description"
-                    id="description"
-                    rows={3}
-                    value={formData.description}
-                    onChange={handleInputChange}
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    placeholder="Provide details about the election, voting process, and any important information for voters..."
-                  />
-                  {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
-                </div>
-
-                {/* Date Range */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label htmlFor="startDate" className="block text-sm font-medium text-gray-700">
-                      Start Date & Time *
-                    </label>
-                    <input
-                      type="datetime-local"
-                      name="startDate"
-                      id="startDate"
-                      value={formData.startDate}
-                      onChange={handleInputChange}
-                      min={getMinDateTime()}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    />
-                    {errors.startDate && <p className="mt-1 text-sm text-red-600">{errors.startDate}</p>}
-                  </div>
-
-                  <div>
-                    <label htmlFor="endDate" className="block text-sm font-medium text-gray-700">
-                      End Date & Time *
-                    </label>
-                    <input
-                      type="datetime-local"
-                      name="endDate"
-                      id="endDate"
-                      value={formData.endDate}
-                      onChange={handleInputChange}
-                      min={getMinEndDateTime()}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    />
-                    {errors.endDate && <p className="mt-1 text-sm text-red-600">{errors.endDate}</p>}
-                  </div>
-                </div>
-              </div>
-
-              {/* Candidates Section */}
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-md font-medium text-gray-900">Candidates</h4>
-                  <button
-                    type="button"
-                    onClick={addCandidate}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-sm font-medium"
+            {/* Manajemen Kandidat */}
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-emerald-600 border-t pt-4 border-emerald-700/50">
+                Candidates
+              </h2>
+              {/* Daftar kandidat yang sudah ditambah */}
+              <div className="space-y-2">
+                {candidates.map((candidate, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex items-center justify-between p-2 rounded-md ${
+                      darkMode ? "bg-neutral-800" : "bg-gray-100"
+                    }`}
                   >
-                    Add Candidate
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  {formData.candidates.map((candidate, index) => (
-                    <div key={candidate.id} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-4">
-                        <h5 className="text-sm font-medium text-gray-900">
-                          Candidate {index + 1}
-                        </h5>
-                        {formData.candidates.length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => removeCandidate(candidate.id)}
-                            className="text-red-600 hover:text-red-800 text-sm"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Name *
-                          </label>
-                          <input
-                            type="text"
-                            value={candidate.name}
-                            onChange={(e) =>
-                              handleCandidateChange(candidate.id, "name", e.target.value)
-                            }
-                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            placeholder="Candidate full name"
-                          />
-                          {errors[`candidate-${candidate.id}-name`] && (
-                            <p className="mt-1 text-sm text-red-600">
-                              {errors[`candidate-${candidate.id}-name`]}
-                            </p>
-                          )}
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">
-                            Description *
-                          </label>
-                          <textarea
-                            rows={2}
-                            value={candidate.description}
-                            onChange={(e) =>
-                              handleCandidateChange(candidate.id, "description", e.target.value)
-                            }
-                            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            placeholder="Brief description or platform"
-                          />
-                          {errors[`candidate-${candidate.id}-description`] && (
-                            <p className="mt-1 text-sm text-red-600">
-                              {errors[`candidate-${candidate.id}-description`]}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                    <div>
+                      <p className="font-semibold">{candidate.name}</p>
+                      <p className="text-sm opacity-80">{candidate.description}</p>
                     </div>
-                  ))}
-                </div>
-
-                {errors.candidates && (
-                  <p className="mt-1 text-sm text-red-600">{errors.candidates}</p>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCandidate(index)}
+                      className="p-1 rounded-full text-red-500 hover:bg-red-500/10"
+                    >
+                      <X size={16} />
+                    </button>
+                  </motion.div>
+                ))}
+                {candidates.length < 2 && (
+                  <p className="text-yellow-500 text-sm">Please add at least 2 candidates.</p>
                 )}
               </div>
 
-              {/* Security Notice */}
-              <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-blue-800">
-                      Blockchain Security
-                    </h3>
-                    <div className="mt-2 text-sm text-blue-700">
-                      <p>
-                        Your election will be secured using blockchain technology with cryptographic
-                        signatures and immutable vote recording. Once created, election details
-                        cannot be modified for security reasons.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              {/* Form untuk menambah kandidat baru */}
+              <div
+                className={`p-3 rounded-lg border space-y-3 ${
+                  darkMode ? "bg-neutral-950/50 border-emerald-800" : "bg-gray-50 border-gray-200"
+                }`}
+              >
+                <h3 className="text-md font-medium">Add New Candidate</h3>
+                <input
+                  type="text"
+                  value={newCandidateName}
+                  onChange={(e) => setNewCandidateName(e.target.value)}
+                  className={`w-full p-2 rounded-md border ${
+                    darkMode
+                      ? "bg-neutral-800 border-emerald-700"
+                      : "bg-gray-50 border-gray-300"
+                  }`}
+                  placeholder="Candidate Name"
+                />
+                <input
+                  type="text"
+                  value={newCandidateDesc}
+                  onChange={(e) => setNewCandidateDesc(e.target.value)}
+                  className={`w-full p-2 rounded-md border ${
+                    darkMode
+                      ? "bg-neutral-800 border-emerald-700"
+                      : "bg-gray-50 border-gray-300"
+                  }`}
+                  placeholder="Candidate Description (e.g., Vision & Mission)"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCandidate}
+                  className={`w-full flex items-center justify-center p-2 rounded-md text-sm font-medium ${
+                    darkMode
+                      ? "bg-emerald-700/50 hover:bg-emerald-700/80 text-white"
+                      : "bg-emerald-100 hover:bg-emerald-200 text-emerald-800"
+                  }`}
+                >
+                  <Plus size={16} className="mr-1" />
+                  Add Candidate
+                </button>
               </div>
             </div>
 
-            {/* Form Actions */}
-            <div className="mt-6 flex justify-end space-x-3">
+            {/* Error & Success Messages */}
+            {error && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-red-500 text-sm text-center"
+              >
+                {error}
+              </motion.p>
+            )}
+            {successMessage && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-green-500 text-sm text-center"
+              >
+                {successMessage}
+              </motion.p>
+            )}
+
+            {/* Tombol Aksi Form */}
+            <div className="flex items-center justify-end space-x-3 pt-4 border-t border-emerald-700/50">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => router.back()}
                 disabled={isLoading}
-                className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                  darkMode
+                    ? "bg-neutral-700 hover:bg-neutral-600 text-white"
+                    : "bg-gray-200 hover:bg-gray-300 text-gray-800"
+                }`}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-2 px-4 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="px-6 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 disabled:cursor-wait"
               >
                 {isLoading ? "Creating..." : "Create Election"}
               </button>
             </div>
           </form>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
