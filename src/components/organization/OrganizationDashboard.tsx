@@ -3,7 +3,7 @@
 import React, { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sun, Moon, Plus, X, Calendar, Users, FileText, CheckCircle, AlertCircle, Settings, ChevronDown } from "lucide-react";
+import { Sun, Moon, Plus, X, Calendar, Users, FileText, CheckCircle, AlertCircle, Settings, ChevronDown, UserPlus, Search } from "lucide-react";
 
 // ---------- Types ----------
 interface User {
@@ -60,6 +60,13 @@ interface OrganizationStats {
 interface CandidateInput {
   name: string;
   description: string;
+}
+
+interface SimpleVoter {
+  id: number;
+  username: string;
+  email: string;
+  isAssigned?: boolean; // Properti baru
 }
 
 type Tab = "Overview" | "Elections" | "Voters" | "Results";
@@ -291,7 +298,95 @@ export default function OrganizationDashboard() {
       setCreateLoading(false);
     }
   };
+  // State untuk Modal Assign
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [selectedElectionForAssign, setSelectedElectionForAssign] = useState<{id: number, title: string} | null>(null);
+  const [availableVoters, setAvailableVoters] = useState<SimpleVoter[]>([]);
+  const [selectedVoterIds, setSelectedVoterIds] = useState<number[]>([]);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
+  // Fungsi untuk load semua voter yang tersedia (role=voter)
+  const loadAvailableVoters = async (electionId?: number) => {
+      const token = localStorage.getItem("accessToken");
+      if(!token) return;
+      
+      try {
+          // Tambahkan query param electionId jika ada
+          const url = electionId 
+              ? `/api/organization/voters/all?electionId=${electionId}`
+              : "/api/organization/voters/all";
+
+          const res = await fetch(url, {
+              headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if(data.success) setAvailableVoters(data.data);
+      } catch(e) {
+          console.error("Failed to load voters", e);
+      }
+  };
+
+// Handler saat tombol "Assign Voter" diklik
+  const openAssignModal = (electionId: number, electionTitle: string) => {
+      setSelectedElectionForAssign({ id: electionId, title: electionTitle });
+      setSelectedVoterIds([]);
+      setSearchTerm("");
+      // Kirim ID election agar backend bisa filter yang sudah assigned
+      loadAvailableVoters(electionId); 
+      setIsAssignModalOpen(true);
+  };
+
+// Handler toggle checkbox voter
+const toggleVoterSelection = (voterId: number) => {
+    setSelectedVoterIds(prev => 
+        prev.includes(voterId) 
+            ? prev.filter(id => id !== voterId) 
+            : [...prev, voterId]
+    );
+};
+
+// Handler Submit Assign
+const handleAssignSubmit = async () => {
+    if(!selectedElectionForAssign || selectedVoterIds.length === 0) return;
+
+    setAssignLoading(true);
+    const token = localStorage.getItem("accessToken");
+    
+    try {
+        const res = await fetch("/api/organization/elections/assign", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                electionId: selectedElectionForAssign.id,
+                voterIds: selectedVoterIds
+            })
+        });
+        
+        const data = await res.json();
+        if(data.success) {
+            alert(data.message);
+            setIsAssignModalOpen(false);
+            loadStats(token!); // Refresh stats untuk update jumlah voter
+        } else {
+            alert(data.message || "Failed to assign voters");
+        }
+    } catch(e) {
+        console.error(e);
+        alert("Error assigning voters");
+    } finally {
+        setAssignLoading(false);
+    }
+};
+
+// Filter voters berdasarkan search
+const filteredVoters = availableVoters.filter(v => 
+    v.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    v.email.toLowerCase().includes(searchTerm.toLowerCase())
+);
   // ---------- Utils ----------
   const handleLogout = () => {
     localStorage.removeItem("accessToken");
@@ -544,6 +639,125 @@ export default function OrganizationDashboard() {
         )}
       </AnimatePresence>
 
+      {/* --- Assign Voter Modal --- */}
+<AnimatePresence>
+{isAssignModalOpen && (
+    <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+    >
+    <motion.div
+        initial={{ scale: 0.95 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.95 }}
+        className={`w-full max-w-lg rounded-xl shadow-2xl border flex flex-col max-h-[85vh] ${
+        darkMode ? "bg-neutral-900 border-emerald-800 text-white" : "bg-white border-gray-200 text-gray-900"
+        }`}
+    >
+        {/* Header */}
+        <div className="p-5 border-b border-gray-200 dark:border-emerald-800 flex justify-between items-center">
+            <div>
+                <h3 className="text-xl font-bold text-emerald-600">Assign Voters</h3>
+                <p className="text-xs opacity-60">To: {selectedElectionForAssign?.title}</p>
+            </div>
+            <button onClick={() => setIsAssignModalOpen(false)}><X size={20} /></button>
+        </div>
+
+        {/* Body (Search & List) */}
+        <div className="p-5 overflow-y-auto flex-1 space-y-4">
+            {/* Search Bar */}
+            <div className={`flex items-center px-3 py-2 rounded-lg border ${darkMode ? "bg-neutral-800 border-emerald-700" : "bg-gray-50 border-gray-300"}`}>
+                <Search size={18} className="opacity-50 mr-2"/>
+                <input 
+                    type="text" 
+                    placeholder="Search by name or email..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="bg-transparent outline-none w-full text-sm"
+                />
+            </div>
+
+            {/* Voter List */}
+            <div className="space-y-2">
+                <div className="flex justify-between text-xs opacity-50 pb-2">
+                    <span>Voter Name</span>
+                    <span>{selectedVoterIds.length} selected</span>
+                </div>
+                {filteredVoters.length === 0 ? (
+                    <p className="text-center py-4 text-sm opacity-50">No voters found.</p>
+                ) : (
+                    filteredVoters.map(voter => {
+                      // Cek apakah voter ini sudah di-assign sebelumnya (dari database)
+                      const isAlreadyAssigned = voter.isAssigned === true;
+
+                      return (
+                          <div 
+                              key={voter.id}
+                              // Hapus handler klik jika sudah assigned
+                              onClick={() => !isAlreadyAssigned && toggleVoterSelection(voter.id)}
+                              className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                                  // Styling Logika
+                                  isAlreadyAssigned 
+                                      ? darkMode ? "bg-neutral-900 border-neutral-800 opacity-50 cursor-not-allowed" : "bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed"
+                                      : selectedVoterIds.includes(voter.id)
+                                          ? "bg-emerald-500/10 border-emerald-500 cursor-pointer"
+                                          : darkMode ? "bg-neutral-800 border-transparent hover:border-emerald-700 cursor-pointer" : "bg-gray-50 border-gray-200 hover:border-emerald-300 cursor-pointer"
+                              }`}
+                          >
+                              <div>
+                                  <div className="flex items-center gap-2">
+                                      <p className="font-bold text-sm">{voter.username}</p>
+                                      {/* Badge 'Assigned' kecil jika sudah terdaftar */}
+                                      {isAlreadyAssigned && (
+                                          <span className="text-[10px] px-1.5 py-0.5 bg-gray-500 text-white rounded-full">
+                                              Assigned
+                                          </span>
+                                      )}
+                                  </div>
+                                  <p className="text-xs opacity-60">{voter.email}</p>
+                              </div>
+                              
+                              {/* Checkbox / Indicator */}
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center ${
+                                  isAlreadyAssigned 
+                                      ? "bg-gray-400 border-gray-400" // Warna abu-abu mati jika assigned
+                                      : selectedVoterIds.includes(voter.id) 
+                                          ? "bg-emerald-500 border-emerald-500" 
+                                          : "border-gray-400"
+                              }`}>
+                                  {(selectedVoterIds.includes(voter.id) || isAlreadyAssigned) && (
+                                      <CheckCircle size={12} className="text-white" />
+                                  )}
+                              </div>
+                          </div>
+                      );
+                  })
+                )}
+            </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-gray-200 dark:border-emerald-800 flex justify-end gap-3">
+            <button 
+                onClick={() => setIsAssignModalOpen(false)}
+                className="px-4 py-2 text-sm rounded-lg hover:bg-gray-100 dark:hover:bg-neutral-800"
+            >
+                Cancel
+            </button>
+            <button 
+                onClick={handleAssignSubmit}
+                disabled={assignLoading || selectedVoterIds.length === 0}
+                className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2"
+            >
+                {assignLoading ? "Saving..." : `Assign ${selectedVoterIds.length} Voters`}
+            </button>
+        </div>
+    </motion.div>
+    </motion.div>
+)}
+</AnimatePresence>
       {/* Theme toggle */}
       <div className="fixed top-4 right-4 z-40">
         <motion.button
@@ -787,6 +1001,20 @@ export default function OrganizationDashboard() {
                     <h3 className="text-lg font-bold text-emerald-600 pr-24 truncate">
                       {e.title}
                     </h3>
+                    <div className="mt-2 mb-4">
+                      <button
+                          onClick={() => openAssignModal(e.id, e.title)}
+                          disabled={e.status === 'ENDED'}
+                          className={`text-xs flex items-center gap-1 px-3 py-1.5 rounded-md border transition-colors ${
+                              darkMode 
+                              ? "bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-emerald-400" 
+                              : "bg-gray-50 border-gray-200 hover:bg-gray-100 text-emerald-700"
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                          <UserPlus size={12} />
+                          Assign Voters
+                      </button>
+                    </div>
                     <div className="mt-4 space-y-2 text-sm">
                         <div className="flex justify-between">
                             <span className="opacity-60">Registered Voters</span>
