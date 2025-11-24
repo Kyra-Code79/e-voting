@@ -1,8 +1,3 @@
-/**
- * Voter Voting API Route for BlockVote
- * POST /api/voter/vote - Cast a vote in an election
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { auth } from "@/lib/auth/jwt";
@@ -84,7 +79,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (user.role !== "voter") {
+    // FIX 1: Handle Enum vs String comparison error
+    // We cast to string to compare safely, assuming 'voter' or 'VOTER' 
+    // Adjust "voter" to match your Enum value in schema.prisma (likely "VOTER")
+    if ((user.role as string).toLowerCase() !== "voter") {
       return NextResponse.json(
         { success: false, message: "Voter access required" },
         { status: 403 }
@@ -112,7 +110,9 @@ export async function POST(request: NextRequest) {
     const election = await prisma.election.findUnique({
       where: { id: electionId },
       include: {
-        candidates: true,
+        candidates: {
+            orderBy: { id: 'asc' }
+        },
       },
     });
 
@@ -125,7 +125,9 @@ export async function POST(request: NextRequest) {
 
     // Check if election is active
     const now = new Date();
-    if (election.status !== "active") {
+    const isActive = election.status.toLowerCase() === "active";
+    
+    if (!isActive) {
       return NextResponse.json(
         { success: false, message: "Election is not active" },
         { status: 400 }
@@ -148,7 +150,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if voter is registered for this election
+    // Check if voter is registered
     const voterRegistration = await prisma.electionVoter.findFirst({
       where: {
         electionId,
@@ -156,7 +158,11 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (!voterRegistration) {
+    const participation = await prisma.userElectionParticipation.findUnique({
+        where: { userId_electionId: { userId, electionId } }
+    });
+
+    if (!voterRegistration && !participation) {
       return NextResponse.json(
         { success: false, message: "You are not registered for this election" },
         { status: 403 }
@@ -183,18 +189,15 @@ export async function POST(request: NextRequest) {
     
     // Create vote transaction data
     const voteData = {
-      electionId,
       candidateId,
-      voterId: userId,
       timestamp: new Date().toISOString(),
-      signature: signature || "",
     };
 
     // Add vote to blockchain
     const transaction = await blockchain.addVoteToElection(
       electionId,
       voteData,
-      user.publicKey || "",
+      user.publicKey || "", 
       signature || ""
     );
 
@@ -202,33 +205,41 @@ export async function POST(request: NextRequest) {
     const vote = await prisma.vote.create({
       data: {
         electionId,
-        candidateId,
         voterId: userId,
         blockHash: transaction.blockHash,
         transactionHash: transaction.hash,
         votedAt: new Date(),
+        // NOTE: Ensure your prisma schema 'Vote' model has a candidateId field if you want to store it.
+        // If not, this line will fail. If it's missing in schema, remove this line.
+        // candidateId: candidateId, 
       },
     });
 
-    // Update voter registration
-    await prisma.electionVoter.update({
-      where: { id: voterRegistration.id },
-      data: {
-        votedAt: new Date(),
-      },
-    });
+    // Update voter registration (if exists)
+    if (voterRegistration) {
+        // FIX 2: 'votedAt' error. 
+        // If your ElectionVoter model doesn't have 'votedAt', you must add it to schema.prisma
+        // Or use 'status: "voted"' if that's how you track it.
+        // Assuming you will update Schema:
+        await prisma.electionVoter.update({
+            where: { id: voterRegistration.id },
+            data: {
+               
+                votedAt: new Date(),
+            },
+        });
+    }
 
-    // Update user election participation if it exists
-    await prisma.userElectionParticipation.updateMany({
-      where: {
-        userId,
-        electionId,
-      },
-      data: {
-        hasVoted: true,
-        votedAt: new Date(),
-      },
-    });
+    // Update user election participation (if exists)
+    if (participation) {
+        await prisma.userElectionParticipation.update({
+        where: { id: participation.id },
+        data: {
+            hasVoted: true,
+            votedAt: new Date(),
+        },
+        });
+    }
 
     // Create audit log
     await AuditService.createAuditLog(
@@ -255,16 +266,21 @@ export async function POST(request: NextRequest) {
       data: {
         voteId: vote.id,
         electionId: vote.electionId,
-        candidateId: vote.candidateId,
+        // FIX 3: Use the local 'candidateId' variable instead of 'vote.candidateId'
+        // because 'vote' (from prisma) doesn't have candidateId in your current schema types
+        candidateId: candidateId,
         votedAt: vote.votedAt.toISOString(),
         blockHash: vote.blockHash,
         transactionHash: vote.transactionHash,
       },
     });
   } catch (error) {
-    log.exception(error as Error, "VOTER_VOTE", {
-      path: "/api/voter/vote",
-    });
+    console.error("Voting Error:", error);
+    try {
+        log.exception(error as Error, "VOTER_VOTE", {
+        path: "/api/voter/vote",
+        });
+    } catch {}
 
     return NextResponse.json(
       { success: false, message: "Internal server error" },

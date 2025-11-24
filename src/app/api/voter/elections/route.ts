@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient, UserElectionParticipation } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { auth } from "@/lib/auth/jwt";
 import { AuditService } from "@/lib/database/services/audit.service";
 
 const prisma = new PrismaClient();
 
 /**
- * GET /api/voter/elections
- * Get elections available to the authenticated voter
+ * GET /api/organization/elections
+ * Get elections for the authenticated organization
  */
 export async function GET(request: NextRequest) {
   try {
-    // ---------- Auth ----------
+    // Verify authentication
     const authHeader = request.headers.get("authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
@@ -22,15 +22,16 @@ export async function GET(request: NextRequest) {
 
     const token = authHeader.substring(7);
     let decoded;
+
     try {
       decoded = auth.verifyToken(token).payload;
     } catch (error) {
+      console.error("Token verification failed:", error);
       return NextResponse.json(
         { success: false, message: "Invalid token" },
         { status: 401 },
       );
     }
-    
 
     if (!decoded || !decoded.userId) {
       return NextResponse.json(
@@ -39,140 +40,346 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const userId = parseInt(decoded.userId, 10);
+    // Convert userId to number
+    const userId =
+      typeof decoded.userId === "string"
+        ? parseInt(decoded.userId, 10)
+        : decoded.userId;
+
     if (isNaN(userId)) {
-        return NextResponse.json(
-            { success: false, message: "Invalid user ID" },
-            { status: 401 },
-        );
+      return NextResponse.json(
+        { success: false, message: "Invalid user ID in token" },
+        { status: 401 },
+      );
     }
 
-    // Get user and verify voter role
+    // Get user and verify organization role
     const user = await prisma.user.findUnique({
       where: { id: userId },
     });
 
-    if (!user || user.role !== "VOTER") {
+    if (!user) {
       return NextResponse.json(
-        { success: false, message: "Voter access required" },
+        { success: false, message: "User not found" },
+        { status: 404 },
+      );
+    }
+
+    if (user.role !== "ORGANIZATION") {
+      return NextResponse.json(
+        { success: false, message: "Organization access required" },
         { status: 403 },
       );
     }
 
-    // --- REFAKTOR UNTUK EFISIENSI ---
-    // 1. Dapatkan semua partisipasi (dan data election terkait) dalam SATU kueri
-    //    Ini menggantikan loop N+1 dan logika `ElectionVoter` yang lama.
-    const participations = await prisma.userElectionParticipation.findMany({
+    // Get organization elections with related data
+    const elections = await prisma.election.findMany({
       where: {
-        userId: user.id,
+        organizationId: user.id,
       },
       include: {
-        election: {
-          include: {
-            candidates: {
-              orderBy: { id: "asc" },
-            },
-            organization: {
-              select: { username: true, email: true },
-            },
+        candidates: {
+          orderBy: { id: "asc" },
+        },
+        _count: {
+          select: {
+            votes: true,
           },
         },
       },
-    });
-
-    // 2. Map hasil, tidak perlu kueri tambahan di dalam loop
-    const now = new Date();
-    const electionsWithVoteStatus = participations.map((participation) => {
-      const { election } = participation;
-
-      // Status vote diambil langsung dari data partisipasi
-      const hasVotedStatus = participation.hasVoted;
-      const votedAt = participation.votedAt;
-
-      // Tentukan apakah voter bisa memilih
-      const canVote =
-        !hasVotedStatus &&
-        election.status === "ACTIVE" &&
-        now >= new Date(election.startDate) &&
-        now <= new Date(election.endDate);
-
-      // Hitung sisa waktu
-      const remainingTime =
-        election.status === "ACTIVE" && now < new Date(election.endDate)
-          ? Math.max(0, new Date(election.endDate).getTime() - now.getTime())
-          : 0;
-
-      return {
-        id: election.id,
-        title: election.title,
-        description: election.description,
-        status: election.status,
-        startDate: election.startDate.toISOString(),
-        endDate: election.endDate.toISOString(),
-        organizationId: election.organizationId,
-        organization: election.organization,
-        candidates: election.candidates,
-        hasVoted: hasVotedStatus,
-        votedAt: votedAt?.toISOString(),
-        canVote,
-        remainingTime,
-        voterRegistrationId: participation.id, // Ini adalah ID partisipasi
-      };
-    });
-
-    // --- LOGIKA SORTING BARU SESUAI PERMINTAAN ---
-    // Buat Peta urutan status
-    const statusOrder = {
-      "ACTIVE": 1,
-      "DRAFT": 2,
-      "ENDED": 3,
-    };
-
-    const sortedElections = electionsWithVoteStatus.sort((a, b) => {
-      // Dapatkan nilai urutan; default ke 99 jika status tidak diketahui
-      const orderA = statusOrder[a.status as keyof typeof statusOrder] || 99;
-      const orderB = statusOrder[b.status as keyof typeof statusOrder] || 99;
-
-      // 1. Urutkan berdasarkan status
-      if (orderA !== orderB) {
-        return orderA - orderB;
-      }
-      
-      // 2. Jika status sama, urutkan berdasarkan tanggal mulai (terbaru dulu)
-      return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+      orderBy: {
+        createdAt: "desc",
+      },
     });
 
     // Create audit log
-    await AuditService.createAuditLog(
-      user.id,
-      "VIEW",
-      "VOTER_ELECTIONS",
-      undefined,
-      `Viewed ${sortedElections.length} available elections`,
-      request.headers.get("x-forwarded-for") ||
-        request.headers.get("x-real-ip") ||
-        "unknown",
-      request.headers.get("user-agent") || "unknown",
-    );
+    try {
+      await AuditService.createAuditLog(
+        user.id,
+        "VIEW",
+        "ORGANIZATION_ELECTIONS",
+        undefined,
+        `Viewed ${elections.length} elections`,
+        request.headers.get("x-forwarded-for") || "unknown",
+        request.headers.get("user-agent") || "unknown",
+      );
+    } catch (auditError) {
+      console.error("Failed to create audit log:", auditError);
+    }
 
     return NextResponse.json({
       success: true,
-      data: sortedElections,
+      data: elections,
     });
   } catch (error) {
-    console.error("Error fetching voter elections:", error);
+    console.error("Error fetching organization elections:", error);
     return NextResponse.json(
       {
         success: false,
         message: "Internal server error",
-        error:
-          process.env.NODE_ENV === "development"
-            ? error instanceof Error
-              ? error.message
-              : String(error)
-            : undefined,
+        error: process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined,
       },
       { status: 500 },
+    );
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
+ * POST /api/organization/elections
+ * Create a new election
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // Verify authentication
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { success: false, message: "Authentication required" },
+        { status: 401 },
+      );
+    }
+
+    const token = authHeader.substring(7);
+    let decoded;
+
+    try {
+      decoded = auth.verifyToken(token).payload;
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, message: "Invalid token" },
+        { status: 401 },
+      );
+    }
+
+    if (!decoded || !decoded.userId) {
+      return NextResponse.json(
+        { success: false, message: "Invalid token payload" },
+        { status: 401 },
+      );
+    }
+
+    const userId = typeof decoded.userId === "string" ? parseInt(decoded.userId, 10) : decoded.userId;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user || user.role !== "ORGANIZATION") {
+      return NextResponse.json(
+        { success: false, message: "Organization access required" },
+        { status: 403 },
+      );
+    }
+
+    // Parse request body
+    const body = await request.json();
+    const { title, description, startDate, endDate, candidates } = body;
+
+    // Validate required fields
+    if (!title || !description || !startDate || !endDate) {
+      return NextResponse.json(
+        { success: false, message: "Missing required fields" },
+        { status: 400 },
+      );
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const now = new Date();
+
+    if (start < now) {
+      return NextResponse.json(
+        { success: false, message: "Start date cannot be in the past" },
+        { status: 400 },
+      );
+    }
+
+    if (end <= start) {
+      return NextResponse.json(
+        { success: false, message: "End date must be after start date" },
+        { status: 400 },
+      );
+    }
+
+    if (!candidates || !Array.isArray(candidates) || candidates.length < 2) {
+      return NextResponse.json(
+        { success: false, message: "At least 2 candidates are required" },
+        { status: 400 },
+      );
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Create election
+      const election = await tx.election.create({
+        data: {
+          title,
+          description,
+          startDate: start,
+          endDate: end,
+          organizationId: user.id,
+          status: "DRAFT",
+        },
+      });
+
+      // Create candidates
+      const createdCandidates = await Promise.all(
+        candidates.map((candidate: { name: string; description: string }) =>
+          tx.candidate.create({
+            data: {
+              electionId: election.id,
+              name: candidate.name,
+              description: candidate.description,
+            },
+          }),
+        ),
+      );
+
+      // Init statistics
+      await tx.electionStatistics.create({
+        data: {
+          electionId: election.id,
+          totalRegisteredVoters: 0,
+          totalVotesCast: 0,
+          participationRate: 0.0,
+        },
+      });
+
+      return { election, candidates: createdCandidates };
+    });
+
+    // Audit Log
+    try {
+      await AuditService.createAuditLog(
+        user.id,
+        "CREATE",
+        "ELECTION",
+        result.election.id,
+        `Created election: ${title}`,
+        request.headers.get("x-forwarded-for") || "unknown",
+        request.headers.get("user-agent") || "unknown",
+      );
+    } catch (auditError) {
+      console.error("Failed to create audit log:", auditError);
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...result.election,
+        candidates: result.candidates,
+      },
+      message: "Election created successfully",
+    });
+  } catch (error) {
+    console.error("Error creating election:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Internal server error",
+        error: process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined,
+      },
+      { status: 500 },
+    );
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
+ * PATCH /api/organization/elections
+ * Update election status (DRAFT -> ACTIVE -> ENDED)
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    // 1. Auth Check
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ success: false, message: "Authentication required" }, { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    let decoded;
+    try {
+      decoded = auth.verifyToken(token).payload;
+    } catch (error) {
+      return NextResponse.json({ success: false, message: "Invalid token" }, { status: 401 });
+    }
+
+    if (!decoded || !decoded.userId) {
+      return NextResponse.json({ success: false, message: "Invalid token payload" }, { status: 401 });
+    }
+
+    // Convert userId to number
+    const userId = typeof decoded.userId === "string" ? parseInt(decoded.userId, 10) : decoded.userId;
+
+    if (isNaN(userId)) {
+      return NextResponse.json({ success: false, message: "Invalid user ID in token" }, { status: 401 });
+    }
+
+    // 2. Verify Organization Role
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== "ORGANIZATION") {
+      return NextResponse.json({ success: false, message: "Organization access required" }, { status: 403 });
+    }
+
+    // 3. Parse Body
+    const body = await request.json();
+    const { electionId, status } = body;
+
+    if (!electionId || !status) {
+      return NextResponse.json({ success: false, message: "Election ID and status are required" }, { status: 400 });
+    }
+
+    // Validate status
+    const validStatuses = ["DRAFT", "ACTIVE", "ENDED"];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json({ success: false, message: "Invalid status value" }, { status: 400 });
+    }
+
+    // 4. Verify Ownership & Update
+    const existingElection = await prisma.election.findUnique({
+      where: { id: electionId },
+    });
+
+    if (!existingElection) {
+      return NextResponse.json({ success: false, message: "Election not found" }, { status: 404 });
+    }
+
+    if (existingElection.organizationId !== user.id) {
+      return NextResponse.json({ success: false, message: "Unauthorized to update this election" }, { status: 403 });
+    }
+
+    const updatedElection = await prisma.election.update({
+      where: { id: electionId },
+      data: { status: status },
+    });
+
+    // 5. Audit Log
+    try {
+      await AuditService.createAuditLog(
+        user.id,
+        "UPDATE",
+        "ELECTION_STATUS",
+        electionId,
+        `Updated status to ${status} for election: ${existingElection.title}`,
+        request.headers.get("x-forwarded-for") || "unknown",
+        request.headers.get("user-agent") || "unknown",
+      );
+    } catch (e) { console.error("Audit log failed", e); }
+
+    return NextResponse.json({
+      success: true,
+      data: updatedElection,
+      message: `Election status updated to ${status}`,
+    });
+
+  } catch (error) {
+    console.error("Error updating election:", error);
+    return NextResponse.json(
+      { success: false, message: "Internal server error", error: process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined },
+      { status: 500 }
     );
   } finally {
     await prisma.$disconnect();

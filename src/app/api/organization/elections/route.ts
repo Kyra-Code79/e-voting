@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Create audit log (don't fail if this errors)
+    // Create audit log
     try {
       await AuditService.createAuditLog(
         user.id,
@@ -100,9 +100,7 @@ export async function GET(request: NextRequest) {
         "ORGANIZATION_ELECTIONS",
         undefined,
         `Viewed ${elections.length} elections`,
-        request.headers.get("x-forwarded-for") ||
-          request.headers.get("x-real-ip") ||
-          "unknown",
+        request.headers.get("x-forwarded-for") || "unknown",
         request.headers.get("user-agent") || "unknown",
       );
     } catch (auditError) {
@@ -115,24 +113,11 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error fetching organization elections:", error);
-
-    // Log detailed error information
-    if (error instanceof Error) {
-      console.error("Error name:", error.name);
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
-    }
-
     return NextResponse.json(
       {
         success: false,
         message: "Internal server error",
-        error:
-          process.env.NODE_ENV === "development"
-            ? error instanceof Error
-              ? error.message
-              : String(error)
-            : undefined,
+        error: process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined,
       },
       { status: 500 },
     );
@@ -143,7 +128,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/organization/elections
- * Create a new election for the authenticated organization
+ * Create a new election
  */
 export async function POST(request: NextRequest) {
   try {
@@ -162,7 +147,6 @@ export async function POST(request: NextRequest) {
     try {
       decoded = auth.verifyToken(token).payload;
     } catch (error) {
-      console.error("Token verification failed:", error);
       return NextResponse.json(
         { success: false, message: "Invalid token" },
         { status: 401 },
@@ -176,32 +160,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert userId to number
-    const userId =
-      typeof decoded.userId === "string"
-        ? parseInt(decoded.userId, 10)
-        : decoded.userId;
+    const userId = typeof decoded.userId === "string" ? parseInt(decoded.userId, 10) : decoded.userId;
 
-    if (isNaN(userId)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid user ID in token" },
-        { status: 401 },
-      );
-    }
-
-    // Get user and verify organization role
     const user = await prisma.user.findUnique({
       where: { id: userId },
     });
 
-    if (!user) {
-      return NextResponse.json(
-        { success: false, message: "User not found" },
-        { status: 404 },
-      );
-    }
-
-    if (user.role !== "ORGANIZATION") {
+    if (!user || user.role !== "ORGANIZATION") {
       return NextResponse.json(
         { success: false, message: "Organization access required" },
         { status: 403 },
@@ -220,7 +185,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate dates
     const start = new Date(startDate);
     const end = new Date(endDate);
     const now = new Date();
@@ -239,7 +203,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate candidates
     if (!candidates || !Array.isArray(candidates) || candidates.length < 2) {
       return NextResponse.json(
         { success: false, message: "At least 2 candidates are required" },
@@ -247,22 +210,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate each candidate
-    for (const candidate of candidates) {
-      if (!candidate.name || !candidate.description) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "All candidates must have name and description",
-          },
-          { status: 400 },
-        );
-      }
-    }
-
-    // Create election with candidates in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create the election
+      // Create election
       const election = await tx.election.create({
         data: {
           title,
@@ -287,7 +236,7 @@ export async function POST(request: NextRequest) {
         ),
       );
 
-      // Initialize election statistics
+      // Init statistics
       await tx.electionStatistics.create({
         data: {
           electionId: election.id,
@@ -300,7 +249,7 @@ export async function POST(request: NextRequest) {
       return { election, candidates: createdCandidates };
     });
 
-    // Create audit log (don't fail if this errors)
+    // Audit Log
     try {
       await AuditService.createAuditLog(
         user.id,
@@ -308,9 +257,7 @@ export async function POST(request: NextRequest) {
         "ELECTION",
         result.election.id,
         `Created election: ${title}`,
-        request.headers.get("x-forwarded-for") ||
-          request.headers.get("x-real-ip") ||
-          "unknown",
+        request.headers.get("x-forwarded-for") || "unknown",
         request.headers.get("user-agent") || "unknown",
       );
     } catch (auditError) {
@@ -327,26 +274,112 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error creating election:", error);
-
-    // Log detailed error information
-    if (error instanceof Error) {
-      console.error("Error name:", error.name);
-      console.error("Error message:", error.message);
-      console.error("Error stack:", error.stack);
-    }
-
     return NextResponse.json(
       {
         success: false,
         message: "Internal server error",
-        error:
-          process.env.NODE_ENV === "development"
-            ? error instanceof Error
-              ? error.message
-              : String(error)
-            : undefined,
+        error: process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined,
       },
       { status: 500 },
+    );
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
+ * PATCH /api/organization/elections
+ * Update election status (DRAFT -> ACTIVE -> ENDED)
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    // 1. Auth Check
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json({ success: false, message: "Authentication required" }, { status: 401 });
+    }
+
+    const token = authHeader.substring(7);
+    let decoded;
+    try {
+      decoded = auth.verifyToken(token).payload;
+    } catch (error) {
+      return NextResponse.json({ success: false, message: "Invalid token" }, { status: 401 });
+    }
+
+    if (!decoded || !decoded.userId) {
+      return NextResponse.json({ success: false, message: "Invalid token payload" }, { status: 401 });
+    }
+
+    // Convert userId to number
+    const userId = typeof decoded.userId === "string" ? parseInt(decoded.userId, 10) : decoded.userId;
+
+    if (isNaN(userId)) {
+      return NextResponse.json({ success: false, message: "Invalid user ID in token" }, { status: 401 });
+    }
+
+    // 2. Verify Organization Role
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.role !== "ORGANIZATION") {
+      return NextResponse.json({ success: false, message: "Organization access required" }, { status: 403 });
+    }
+
+    // 3. Parse Body
+    const body = await request.json();
+    const { electionId, status } = body;
+
+    if (!electionId || !status) {
+      return NextResponse.json({ success: false, message: "Election ID and status are required" }, { status: 400 });
+    }
+
+    // Validate status
+    const validStatuses = ["DRAFT", "ACTIVE", "ENDED"];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json({ success: false, message: "Invalid status value" }, { status: 400 });
+    }
+
+    // 4. Verify Ownership & Update
+    const existingElection = await prisma.election.findUnique({
+      where: { id: electionId },
+    });
+
+    if (!existingElection) {
+      return NextResponse.json({ success: false, message: "Election not found" }, { status: 404 });
+    }
+
+    if (existingElection.organizationId !== user.id) {
+      return NextResponse.json({ success: false, message: "Unauthorized to update this election" }, { status: 403 });
+    }
+
+    const updatedElection = await prisma.election.update({
+      where: { id: electionId },
+      data: { status: status },
+    });
+
+    // 5. Audit Log
+    try {
+      await AuditService.createAuditLog(
+        user.id,
+        "UPDATE",
+        "ELECTION_STATUS",
+        electionId,
+        `Updated status to ${status} for election: ${existingElection.title}`,
+        request.headers.get("x-forwarded-for") || "unknown",
+        request.headers.get("user-agent") || "unknown",
+      );
+    } catch (e) { console.error("Audit log failed", e); }
+
+    return NextResponse.json({
+      success: true,
+      data: updatedElection,
+      message: `Election status updated to ${status}`,
+    });
+
+  } catch (error) {
+    console.error("Error updating election:", error);
+    return NextResponse.json(
+      { success: false, message: "Internal server error", error: process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined },
+      { status: 500 }
     );
   } finally {
     await prisma.$disconnect();
