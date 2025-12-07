@@ -10,284 +10,147 @@ import { AuditService } from "@/lib/database/services/audit.service";
 import { UserService } from "@/lib/database/services/user.service";
 import { log } from "@/utils/logger";
 import { z } from "zod";
+import prisma from "@/lib/database/client";
+import { Prisma, UserRole } from "@prisma/client";
 
-// Validation schema for audit log query parameters
+// Validation schema
 const auditQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 1)),
-  limit: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 50)),
-  userId: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : undefined)),
+  page: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 1)),
+  limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
+  userId: z.string().optional().transform((val) => (val ? parseInt(val, 10) : undefined)),
   action: z.string().optional(),
+  role: z.enum(["admin", "organization", "voter", "ALL"]).optional(), // Support "ALL" explicitly
   resource: z.string().optional(),
-  resourceId: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : undefined)),
-  startDate: z
-    .string()
-    .optional()
-    .transform((val) => (val ? new Date(val) : undefined)),
-  endDate: z
-    .string()
-    .optional()
-    .transform((val) => (val ? new Date(val) : undefined)),
+  resourceId: z.string().optional().transform((val) => (val ? parseInt(val, 10) : undefined)),
+  startDate: z.string().optional().transform((val) => (val ? new Date(val) : undefined)),
+  endDate: z.string().optional().transform((val) => (val ? new Date(val) : undefined)),
   ipAddress: z.string().optional(),
-  export: z
-    .string()
-    .optional()
-    .transform((val) => val === "true"),
+  export: z.string().optional().transform((val) => val === "true"),
 });
 
-/**
- * GET /api/admin/audit
- * Get audit logs with filtering and pagination (Admin only)
- */
 export async function GET(request: NextRequest) {
   try {
-    // Protect route - Admin only
+    // 1. Auth Check
     const authResult = await protect.authenticate(request, {
       requireAuth: true,
       allowedRoles: ["admin"],
     });
 
     if (!authResult.success || !authResult.user) {
-      return NextResponse.json(
-        { error: authResult.error || "Access denied" },
-        { status: authResult.statusCode || 401 },
-      );
+      return NextResponse.json({ error: "Access denied" }, { status: 401 });
     }
 
     const user = await UserService.findById(parseInt(authResult.user.userId));
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-    const { searchParams } = new URL(request.url);
+    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    // Validate query parameters
-    const queryResult = auditQuerySchema.safeParse(
-      Object.fromEntries(searchParams.entries()),
-    );
+    // 2. Parse Query
+    const { searchParams } = new URL(request.url);
+    const queryResult = auditQuerySchema.safeParse(Object.fromEntries(searchParams.entries()));
 
     if (!queryResult.success) {
-      return NextResponse.json(
-        {
-          error: "Invalid query parameters",
-          details: queryResult.error.format(),
-        },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Invalid parameters", details: queryResult.error.format() }, { status: 400 });
     }
 
-    const {
-      page,
-      limit,
-      userId,
-      action,
-      resource,
-      resourceId,
-      startDate,
-      endDate,
-      ipAddress,
-      export: shouldExport,
-    } = queryResult.data;
+    const { page, limit, userId, action, role, resource, resourceId, startDate, endDate, ipAddress, export: shouldExport } = queryResult.data;
 
-    // Build query object
-    const query = {
-      userId,
-      action,
-      resource,
-      resourceId,
-      startDate,
-      endDate,
-      ipAddress,
-    };
+    // 3. Build Prisma Where Input
+    const where: Prisma.AuditLogWhereInput = {};
 
-    // Remove undefined values
-    Object.keys(query).forEach((key) => {
-      if (query[key as keyof typeof query] === undefined) {
-        delete query[key as keyof typeof query];
-      }
-    });
+    if (userId) where.userId = userId;
+    
+    // Filter Action (Ignore "ALL")
+    if (action && action !== "ALL") {
+        where.action = action;
+    }
 
-    // Log admin access
-    log.audit("AUDIT_LOGS_ACCESS", user.id.toString(), {
-      adminEmail: user.email,
-      query,
-      export: shouldExport,
-      ip: request.headers.get("x-forwarded-for") || "unknown",
-    });
+    if (resource) where.resource = resource;
+    if (resourceId) where.resourceId = resourceId;
+    if (ipAddress) where.ipAddress = { contains: ipAddress };
+    
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = startDate;
+      if (endDate) where.createdAt.lte = endDate;
+    }
 
-    // Log admin action in audit trail
+    // 4. Handle Role Filter (Complex Logic)
+    if (role && role !== "ALL") {
+        // Convert to Prisma Enum (Uppercase)
+        const roleEnum = role.toUpperCase() as UserRole;
+        
+        // Find all users with this role
+        const users = await prisma.user.findMany({
+            where: { role: roleEnum },
+            select: { id: true }
+        });
+        
+        const ids = users.map(u => u.id);
+        
+        if (ids.length === 0) {
+            // No users with this role found, return empty result immediately
+            return NextResponse.json({
+                success: true,
+                data: [],
+                pagination: { page, limit, total: 0, totalPages: 0 }
+            });
+        }
+
+        // Apply filter: userId MUST be in the list of IDs with that role
+        if (where.userId) {
+            // If specific userId is requested AND role filter is applied, check intersection
+            if (typeof where.userId === 'number' && !ids.includes(where.userId)) {
+                 return NextResponse.json({ success: true, data: [], pagination: { page, limit, total: 0, totalPages: 0 } });
+            }
+        } else {
+            where.userId = { in: ids };
+        }
+    }
+
+    // 5. Log Access
     await AuditService.createAuditLog(
-      user.id,
-      "AUDIT_LOGS_ACCESS",
-      "AUDIT",
-      undefined,
-      `Admin accessed audit logs with filters: ${JSON.stringify(query)}`,
-      request.headers.get("x-forwarded-for") || "unknown",
-      request.headers.get("user-agent") || "unknown",
+      user.id, "AUDIT_LOGS_ACCESS", "AUDIT", undefined, 
+      `Filters: Action=${action}, Role=${role}`, 
+      request.headers.get("x-forwarded-for") || "unknown", 
+      request.headers.get("user-agent") || "unknown"
     );
 
+    // 6. Execute Query
     if (shouldExport) {
-      // Export audit logs
-      const auditLogs = await AuditService.exportAuditLogs(query, true);
-
-      return NextResponse.json({
-        success: true,
-        message: "Audit logs exported successfully",
-        data: auditLogs,
-        meta: {
-          exported: true,
-          total: auditLogs.length,
-          exportedAt: new Date().toISOString(),
-          exportedBy: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-          },
-        },
-      });
+      const logs = await AuditService.exportAuditLogs(where, true);
+      return NextResponse.json({ success: true, data: logs });
     } else {
-      // Get paginated audit logs
-      const result = await AuditService.getAuditLogs(page, limit, query);
-
+      const result = await AuditService.getAuditLogs(page, limit, where);
       return NextResponse.json({
         success: true,
-        message: "Audit logs retrieved successfully",
+        message: "Audit logs retrieved",
         data: result.data,
         pagination: result.pagination,
-        meta: {
-          query,
-          accessedBy: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-          },
-        },
       });
     }
   } catch (error) {
-    log.exception(error as Error, "ADMIN_AUDIT", {
-      operation: "getAuditLogs",
-    });
-
-    return NextResponse.json(
-      {
-        error: "Failed to retrieve audit logs",
-        message: "An internal server error occurred",
-      },
-      { status: 500 },
-    );
+    console.error("Audit API Error:", error);
+    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
   }
 }
 
-/**
- * DELETE /api/admin/audit
- * Delete old audit logs (Admin only - maintenance operation)
- */
 export async function DELETE(request: NextRequest) {
   try {
-    // Protect route - Admin only
-    const authResult = await protect.authenticate(request, {
-      requireAuth: true,
-      allowedRoles: ["admin"],
-    });
-
-    if (!authResult.success || !authResult.user) {
-      return NextResponse.json(
-        { error: authResult.error || "Access denied" },
-        { status: authResult.statusCode || 401 },
-      );
-    }
+    const authResult = await protect.authenticate(request, { requireAuth: true, allowedRoles: ["admin"] });
+    if (!authResult.success || !authResult.user) return NextResponse.json({ error: "Access denied" }, { status: 401 });
 
     const user = await UserService.findById(parseInt(authResult.user.userId));
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
+    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
     const body = await request.json();
+    const { daysToKeep, confirm } = body;
 
-    // Validation schema for delete operation
-    const deleteSchema = z.object({
-      daysToKeep: z.number().min(30).max(3650), // Between 30 days and 10 years
-      confirm: z.boolean().refine((val) => val === true, {
-        message: "Confirmation required for audit log deletion",
-      }),
-    });
+    if (!confirm || typeof daysToKeep !== 'number') return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 
-    const validation = deleteSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json(
-        {
-          error: "Invalid request data",
-          details: validation.error.format(),
-        },
-        { status: 400 },
-      );
-    }
-
-    const { daysToKeep } = validation.data;
-
-    // Log the dangerous operation
-    log.audit("AUDIT_LOGS_CLEANUP_INITIATED", user.id.toString(), {
-      adminEmail: user.email,
-      daysToKeep,
-      ip: request.headers.get("x-forwarded-for") || "unknown",
-    });
-
-    // Create audit log before deletion
-    await AuditService.createAuditLog(
-      user.id,
-      "AUDIT_LOGS_CLEANUP",
-      "AUDIT",
-      undefined,
-      `Admin initiated cleanup of audit logs older than ${daysToKeep} days`,
-      request.headers.get("x-forwarded-for") || "unknown",
-      request.headers.get("user-agent") || "unknown",
-    );
-
-    // Perform the deletion
+    await AuditService.createAuditLog(user.id, "AUDIT_LOGS_CLEANUP", "AUDIT", undefined, `Cleanup logs older than ${daysToKeep} days`);
     const deletedCount = await AuditService.deleteOldAuditLogs(daysToKeep);
 
-    // Log successful cleanup
-    log.audit("AUDIT_LOGS_CLEANUP_COMPLETED", user.id.toString(), {
-      adminEmail: user.email,
-      deletedCount,
-      daysToKeep,
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: `Successfully deleted ${deletedCount} old audit log entries`,
-      data: {
-        deletedCount,
-        daysToKeep,
-        cleanupDate: new Date().toISOString(),
-        performedBy: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-        },
-      },
-    });
+    return NextResponse.json({ success: true, message: `Deleted ${deletedCount} logs`, data: { deletedCount } });
   } catch (error) {
-    log.exception(error as Error, "ADMIN_AUDIT", {
-      operation: "deleteOldAuditLogs",
-    });
-
-    return NextResponse.json(
-      {
-        error: "Failed to cleanup audit logs",
-        message: "An internal server error occurred",
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, message: "Server error" }, { status: 500 });
   }
 }

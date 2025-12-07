@@ -1,293 +1,276 @@
-/**
- * @file Admin Audit Logs API Endpoint
- * @description API endpoints for admin users to view and manage audit logs
- * @author BlockVote Development Team
- */
+import prisma from "@/lib/database/client";
+import { Prisma } from "@prisma/client";
 
-import { NextRequest, NextResponse } from "next/server";
-import { protect } from "@/lib/auth/middleware";
-import { AuditService } from "@/lib/database/services/audit.service";
-import { UserService } from "@/lib/database/services/user.service";
-import { log } from "@/utils/logger";
-import { z } from "zod";
-
-// Validation schema for audit log query parameters
-const auditQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 1)),
-  limit: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : 50)),
-  userId: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : undefined)),
-  action: z.string().optional(),
-  resource: z.string().optional(),
-  resourceId: z
-    .string()
-    .optional()
-    .transform((val) => (val ? parseInt(val, 10) : undefined)),
-  startDate: z
-    .string()
-    .optional()
-    .transform((val) => (val ? new Date(val) : undefined)),
-  endDate: z
-    .string()
-    .optional()
-    .transform((val) => (val ? new Date(val) : undefined)),
-  ipAddress: z.string().optional(),
-  export: z
-    .string()
-    .optional()
-    .transform((val) => val === "true"),
-});
-
-/**
- * GET /api/admin/audit
- * Get audit logs with filtering and pagination (Admin only)
- */
-export async function GET(request: NextRequest) {
-  try {
-    // Protect route - Admin only
-    const authResult = await protect.authenticate(request, {
-      requireAuth: true,
-      allowedRoles: ["admin"],
-    });
-
-    if (!authResult.success || !authResult.user) {
-      return NextResponse.json(
-        { error: authResult.error || "Access denied" },
-        { status: authResult.statusCode || 401 },
-      );
-    }
-
-    const user = await UserService.findById(parseInt(authResult.user.userId));
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-    const { searchParams } = new URL(request.url);
-
-    // Validate query parameters
-    const queryResult = auditQuerySchema.safeParse(
-      Object.fromEntries(searchParams.entries()),
-    );
-
-    if (!queryResult.success) {
-      return NextResponse.json(
-        {
-          error: "Invalid query parameters",
-          details: queryResult.error.format(),
-        },
-        { status: 400 },
-      );
-    }
-
-    const {
-      page,
-      limit,
-      userId,
-      action,
-      resource,
-      resourceId,
-      startDate,
-      endDate,
-      ipAddress,
-      export: shouldExport,
-    } = queryResult.data;
-
-    // Build query object
-    const query = {
-      userId,
-      action,
-      resource,
-      resourceId,
-      startDate,
-      endDate,
-      ipAddress,
-    };
-
-    // Remove undefined values
-    Object.keys(query).forEach((key) => {
-      if (query[key as keyof typeof query] === undefined) {
-        delete query[key as keyof typeof query];
-      }
-    });
-
-    // Log admin access
-    log.audit("AUDIT_LOGS_ACCESS", user.id.toString(), {
-      adminEmail: user.email,
-      query,
-      export: shouldExport,
-      ip: request.headers.get("x-forwarded-for") || "unknown",
-    });
-
-    // Log admin action in audit trail
-    await AuditService.createAuditLog(
-      user.id,
-      "AUDIT_LOGS_ACCESS",
-      "AUDIT",
-      undefined,
-      `Admin accessed audit logs with filters: ${JSON.stringify(query)}`,
-      request.headers.get("x-forwarded-for") || "unknown",
-      request.headers.get("user-agent") || "unknown",
-    );
-
-    if (shouldExport) {
-      // Export audit logs
-      const auditLogs = await AuditService.exportAuditLogs(query, true);
-
-      return NextResponse.json({
-        success: true,
-        message: "Audit logs exported successfully",
-        data: auditLogs,
-        meta: {
-          exported: true,
-          total: auditLogs.length,
-          exportedAt: new Date().toISOString(),
-          exportedBy: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-          },
+export class AuditService {
+  /**
+   * Create a new audit log entry
+   */
+  static async createAuditLog(
+    userId: number,
+    action: string,
+    resource: string,
+    resourceId?: number,
+    details: string = "",
+    ipAddress: string = "unknown",
+    userAgent: string = "unknown"
+  ) {
+    try {
+      const log = await prisma.auditLog.create({
+        data: {
+          userId,
+          action,
+          resource,
+          resourceId,
+          details,
+          ipAddress,
+          userAgent,
         },
       });
-    } else {
-      // Get paginated audit logs
-      const result = await AuditService.getAuditLogs(page, limit, query);
-
-      return NextResponse.json({
-        success: true,
-        message: "Audit logs retrieved successfully",
-        data: result.data,
-        pagination: result.pagination,
-        meta: {
-          query,
-          accessedBy: {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-          },
-        },
-      });
+      return log;
+    } catch (error) {
+      console.error("Failed to create audit log:", error);
+      // Don't throw error to prevent blocking main flow
+      return null;
     }
-  } catch (error) {
-    log.exception(error as Error, "ADMIN_AUDIT", {
-      operation: "getAuditLogs",
-    });
-
-    return NextResponse.json(
-      {
-        error: "Failed to retrieve audit logs",
-        message: "An internal server error occurred",
-      },
-      { status: 500 },
-    );
   }
-}
 
-/**
- * DELETE /api/admin/audit
- * Delete old audit logs (Admin only - maintenance operation)
- */
-export async function DELETE(request: NextRequest) {
-  try {
-    // Protect route - Admin only
-    const authResult = await protect.authenticate(request, {
-      requireAuth: true,
-      allowedRoles: ["admin"],
-    });
+  /**
+   * Get paginated audit logs
+   * FIX: Menggunakan Prisma.AuditLogWhereInput agar support filter kompleks
+   */
+  static async getAuditLogs(
+    page = 1, 
+    limit = 10, 
+    query: Prisma.AuditLogWhereInput = {} 
+  ) {
+    const skip = (page - 1) * limit;
 
-    if (!authResult.success || !authResult.user) {
-      return NextResponse.json(
-        { error: authResult.error || "Access denied" },
-        { status: authResult.statusCode || 401 },
-      );
-    }
+    try {
+      const [data, total] = await Promise.all([
+        prisma.auditLog.findMany({
+          where: query,
+          skip,
+          take: limit,
+          orderBy: {
+            createdAt: "desc",
+          },
+          include: {
+            user: {
+              select: {
+                username: true,
+                role: true, // Penting untuk UI Admin Dashboard
+                email: true,
+              },
+            },
+          },
+        }),
+        prisma.auditLog.count({ where: query }),
+      ]);
 
-    const user = await UserService.findById(parseInt(authResult.user.userId));
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-    const body = await request.json();
-
-    // Validation schema for delete operation
-    const deleteSchema = z.object({
-      daysToKeep: z.number().min(30).max(3650), // Between 30 days and 10 years
-      confirm: z.boolean().refine((val) => val === true, {
-        message: "Confirmation required for audit log deletion",
-      }),
-    });
-
-    const validation = deleteSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json(
-        {
-          error: "Invalid request data",
-          details: validation.error.format(),
+      return {
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
         },
-        { status: 400 },
-      );
+      };
+    } catch (error) {
+      console.error("Error fetching audit logs:", error);
+      throw error;
     }
+  }
 
-    const { daysToKeep } = validation.data;
-
-    // Log the dangerous operation
-    log.audit("AUDIT_LOGS_CLEANUP_INITIATED", user.id.toString(), {
-      adminEmail: user.email,
-      daysToKeep,
-      ip: request.headers.get("x-forwarded-for") || "unknown",
-    });
-
-    // Create audit log before deletion
-    await AuditService.createAuditLog(
-      user.id,
-      "AUDIT_LOGS_CLEANUP",
-      "AUDIT",
-      undefined,
-      `Admin initiated cleanup of audit logs older than ${daysToKeep} days`,
-      request.headers.get("x-forwarded-for") || "unknown",
-      request.headers.get("user-agent") || "unknown",
-    );
-
-    // Perform the deletion
-    const deletedCount = await AuditService.deleteOldAuditLogs(daysToKeep);
-
-    // Log successful cleanup
-    log.audit("AUDIT_LOGS_CLEANUP_COMPLETED", user.id.toString(), {
-      adminEmail: user.email,
-      deletedCount,
-      daysToKeep,
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: `Successfully deleted ${deletedCount} old audit log entries`,
-      data: {
-        deletedCount,
-        daysToKeep,
-        cleanupDate: new Date().toISOString(),
-        performedBy: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
+  /**
+   * Export audit logs
+   * FIX: Menggunakan Prisma.AuditLogWhereInput agar support filter kompleks
+   */
+  static async exportAuditLogs(
+    query: Prisma.AuditLogWhereInput = {}, 
+    csvFormat = false
+  ) {
+    try {
+      const logs = await prisma.auditLog.findMany({
+        where: query,
+        orderBy: {
+          createdAt: "desc",
         },
-      },
-    });
-  } catch (error) {
-    log.exception(error as Error, "ADMIN_AUDIT", {
-      operation: "deleteOldAuditLogs",
-    });
+        include: {
+          user: {
+            select: {
+              username: true,
+              email: true,
+              role: true,
+            },
+          },
+        },
+        take: 10000, // Limit export to prevent memory issues
+      });
 
-    return NextResponse.json(
-      {
-        error: "Failed to cleanup audit logs",
-        message: "An internal server error occurred",
-      },
-      { status: 500 },
-    );
+      if (!csvFormat) {
+        return logs;
+      }
+
+      // Format as CSV
+      // Ini logic fallback jika tidak ditangani di API Route,
+      // tapi biasanya formatting CSV dilakukan di API Route (seperti kode route.ts Anda yang baru).
+      // Kita return raw logs saja agar fleksibel.
+      return logs;
+    } catch (error) {
+      console.error("Error exporting audit logs:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get audit statistics for dashboard
+   */
+  static async getAuditStatistics(days = 7) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    try {
+      const [totalLogs, actionsCount, resourceCount] = await Promise.all([
+        prisma.auditLog.count({
+          where: {
+            createdAt: {
+              gte: startDate,
+            },
+          },
+        }),
+        prisma.auditLog.groupBy({
+          by: ["action"],
+          where: {
+            createdAt: {
+              gte: startDate,
+            },
+          },
+          _count: {
+            action: true,
+          },
+          orderBy: {
+            _count: {
+              action: "desc",
+            },
+          },
+          take: 5,
+        }),
+        prisma.auditLog.groupBy({
+          by: ["resource"],
+          where: {
+            createdAt: {
+              gte: startDate,
+            },
+          },
+          _count: {
+            resource: true,
+          },
+          orderBy: {
+            _count: {
+              resource: "desc",
+            },
+          },
+          take: 5,
+        }),
+      ]);
+
+      return {
+        totalLogs,
+        topActions: actionsCount.map((item) => ({
+          action: item.action,
+          count: item._count.action,
+        })),
+        topResources: resourceCount.map((item) => ({
+          resource: item.resource,
+          count: item._count.resource,
+        })),
+      };
+    } catch (error) {
+      console.error("Error getting audit statistics:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent audit logs
+   */
+  static async getRecentAuditLogs(limit = 10) {
+    return this.getAuditLogs(1, limit);
+  }
+
+  /**
+   * Get top active users by activity count
+   */
+  static async getTopUsersByActivity(limit = 10, days = 30) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    try {
+      const topUsers = await prisma.auditLog.groupBy({
+        by: ["userId"],
+        where: {
+          createdAt: {
+            gte: startDate,
+          },
+        },
+        _count: {
+          userId: true,
+        },
+        orderBy: {
+          _count: {
+            userId: "desc",
+          },
+        },
+        take: limit,
+      });
+
+      // Enrich with user details
+      const userDetails = await Promise.all(
+        topUsers.map(async (item) => {
+          const user = await prisma.user.findUnique({
+            where: { id: item.userId },
+            select: {
+              username: true,
+              email: true,
+              role: true,
+            },
+          });
+          return {
+            ...user,
+            activityCount: item._count.userId,
+            userId: item.userId,
+          };
+        })
+      );
+
+      return userDetails;
+    } catch (error) {
+      console.error("Error getting top users:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete old audit logs (Maintenance)
+   */
+  static async deleteOldAuditLogs(daysToKeep = 90) {
+    const deleteDate = new Date();
+    deleteDate.setDate(deleteDate.getDate() - daysToKeep);
+
+    try {
+      const result = await prisma.auditLog.deleteMany({
+        where: {
+          createdAt: {
+            lt: deleteDate,
+          },
+        },
+      });
+
+      return result.count;
+    } catch (error) {
+      console.error("Error deleting old audit logs:", error);
+      throw error;
+    }
   }
 }

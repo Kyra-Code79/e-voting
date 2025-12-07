@@ -1,5 +1,6 @@
 import prisma from "../client";
 import { UserService } from "./user.service";
+import { Prisma } from "@prisma/client"; // Import Prisma types
 
 export interface AuditLogEntry {
   id: number;
@@ -19,15 +20,7 @@ export interface AuditLogEntry {
   };
 }
 
-export interface AuditLogQuery {
-  userId?: number;
-  action?: string;
-  resource?: string;
-  resourceId?: number;
-  startDate?: Date;
-  endDate?: Date;
-  ipAddress?: string;
-}
+// Kita hapus interface manual 'AuditLogQuery' dan gunakan Prisma.AuditLogWhereInput langsung di method
 
 export class AuditService {
   // Create audit log entry
@@ -59,73 +52,56 @@ export class AuditService {
   }
 
   // Get audit logs with pagination and filtering
+  // FIX: Mengubah tipe query menjadi Prisma.AuditLogWhereInput
   static async getAuditLogs(
     page: number = 1,
     limit: number = 50,
-    query?: AuditLogQuery,
+    query: Prisma.AuditLogWhereInput = {},
   ) {
     const skip = (page - 1) * limit;
 
-    const where: {
-      userId?: number;
-      action?: string;
-      resource?: string;
-      resourceId?: number;
-      ipAddress?: { contains: string };
-      createdAt?: { gte?: Date; lte?: Date };
-    } = {};
-
-    if (query) {
-      if (query.userId) where.userId = query.userId;
-      if (query.action) where.action = query.action;
-      if (query.resource) where.resource = query.resource;
-      if (query.resourceId) where.resourceId = query.resourceId;
-      if (query.ipAddress) where.ipAddress = { contains: query.ipAddress };
-
-      if (query.startDate || query.endDate) {
-        where.createdAt = {};
-        if (query.startDate) where.createdAt.gte = query.startDate;
-        if (query.endDate) where.createdAt.lte = query.endDate;
-      }
-    }
-
-    const [logs, total] = await Promise.all([
-      prisma.auditLog.findMany({
-        where,
-        include: {
-          user: {
-            select: {
-              id: true,
-              username: true,
-              email: true,
-              role: true,
+    try {
+      const [logs, total] = await Promise.all([
+        prisma.auditLog.findMany({
+          where: query, // Langsung gunakan query dari parameter
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                email: true,
+                role: true,
+              },
             },
           },
-        },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: limit,
-      }),
-      prisma.auditLog.count({ where }),
-    ]);
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: limit,
+        }),
+        prisma.auditLog.count({ where: query }),
+      ]);
 
-    return {
-      data: logs.map((log) => ({
-        ...log,
-        user: log.user
-          ? {
-              ...log.user,
-              role: log.user.role.toLowerCase(),
-            }
-          : undefined,
-      })) as AuditLogEntry[],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+      return {
+        data: logs.map((log) => ({
+          ...log,
+          user: log.user
+            ? {
+                ...log.user,
+                role: log.user.role.toLowerCase(),
+              }
+            : undefined,
+        })) as AuditLogEntry[],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      console.error("Error fetching audit logs:", error);
+      throw error;
+    }
   }
 
   // Get audit logs for a specific user
@@ -152,7 +128,9 @@ export class AuditService {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
-    return this.getAuditLogs(1, limit, { startDate: yesterday });
+    return this.getAuditLogs(1, limit, { 
+      createdAt: { gte: yesterday } 
+    });
   }
 
   // Get audit log statistics
@@ -302,70 +280,55 @@ export class AuditService {
   }
 
   // Export audit logs to JSON
+  // FIX: Menggunakan Prisma.AuditLogWhereInput agar kompatibel dengan export filter
   static async exportAuditLogs(
-    query?: AuditLogQuery,
+    query: Prisma.AuditLogWhereInput = {},
     includeUser: boolean = true,
   ): Promise<AuditLogEntry[]> {
-    const where: {
-      userId?: number;
-      action?: string;
-      resource?: string;
-      resourceId?: number;
-      ipAddress?: { contains: string };
-      createdAt?: { gte?: Date; lte?: Date };
-    } = {};
-
-    if (query) {
-      if (query.userId) where.userId = query.userId;
-      if (query.action) where.action = query.action;
-      if (query.resource) where.resource = query.resource;
-      if (query.resourceId) where.resourceId = query.resourceId;
-      if (query.ipAddress) where.ipAddress = { contains: query.ipAddress };
-
-      if (query.startDate || query.endDate) {
-        where.createdAt = {};
-        if (query.startDate) where.createdAt.gte = query.startDate;
-        if (query.endDate) where.createdAt.lte = query.endDate;
-      }
-    }
-
-    const logs = await prisma.auditLog.findMany({
-      where,
-      include: includeUser
-        ? {
-            user: {
-              select: {
-                id: true,
-                username: true,
-                email: true,
-                role: true,
-              },
-            },
-          }
-        : undefined,
-      orderBy: { createdAt: "desc" },
-    });
-
-    return logs.map((log) => {
-      const logWithUser = log as typeof log & {
-        user?: {
-          id: number;
-          username: string;
-          email: string;
-          role: string;
-        };
-      };
-
-      return {
-        ...log,
-        user: logWithUser.user
-          ? {
-              ...logWithUser.user,
-              role: logWithUser.user.role.toLowerCase(),
+    
+    try {
+        const logs = await prisma.auditLog.findMany({
+        where: query,
+        include: includeUser
+            ? {
+                user: {
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    role: true,
+                },
+                },
             }
-          : undefined,
-      };
-    }) as AuditLogEntry[];
+            : undefined,
+        orderBy: { createdAt: "desc" },
+        take: 10000 // Safety limit
+        });
+
+        return logs.map((log) => {
+        const logWithUser = log as typeof log & {
+            user?: {
+            id: number;
+            username: string;
+            email: string;
+            role: string;
+            };
+        };
+
+        return {
+            ...log,
+            user: logWithUser.user
+            ? {
+                ...logWithUser.user,
+                role: logWithUser.user.role.toLowerCase(),
+                }
+            : undefined,
+        };
+        }) as AuditLogEntry[];
+    } catch (error) {
+        console.error("Error exporting logs", error);
+        throw error;
+    }
   }
 
   // Audit log helper methods for common actions

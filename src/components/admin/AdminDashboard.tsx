@@ -6,11 +6,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   Sun, Moon, Users, FileText, CheckCircle, Database, 
   Activity, Shield, AlertTriangle, Search, Plus, Trash2, Edit, X, RefreshCw,
-  ChevronLeft, ChevronRight, ChevronDown, Download, HardDrive, Server
+  ChevronLeft, ChevronRight, ChevronDown, HardDrive, Server, Building2
 } from "lucide-react";
 import AdminProfileModal from "@/components/admin/AdminProfileModal";
-import { BarChart } from "@/components/charts/BarChart";   // Pastikan path ini benar
-import { DonutChart } from "@/components/charts/DonutChart"; // Pastikan path ini benar
+import { BarChart } from "@/components/charts/BarChart";
+import { DonutChart } from "@/components/charts/DonutChart";
 
 // --- TYPES ---
 interface User {
@@ -53,7 +53,6 @@ interface SystemStats {
   totalBlocks: number;
 }
 
-// Interface baru untuk Chart System
 interface SystemChartData {
   roles: { label: string; value: number }[];
   elections: { label: string; value: number }[];
@@ -69,39 +68,57 @@ export default function AdminDashboard() {
   // State Global
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [darkMode, setDarkMode] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   
+  // Auth State
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [user, setUser] = useState<User | null>(null); 
+  const [userData, setUserData] = useState<User | null>(null); // Live Data
+
   // Data State
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [pendingOrgs, setPendingOrgs] = useState<OrganizationRegistration[]>([]);
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([]);
-  const [systemChartData, setSystemChartData] = useState<SystemChartData | null>(null); // State Chart
+  const [systemChartData, setSystemChartData] = useState<SystemChartData | null>(null);
   
-  // --- STATE KHUSUS LOGS ---
+  // Logs Tab State
   const [logsList, setLogsList] = useState<AuditLog[]>([]);
   const [logPage, setLogPage] = useState(1);
   const [logTotalPages, setLogTotalPages] = useState(1);
   const [logLoading, setLogLoading] = useState(false);
-  
-  // FILTER STATES (DUAL FILTER)
   const [logFilter, setLogFilter] = useState("ALL"); 
   const [actorFilter, setActorFilter] = useState("ALL"); 
 
+  // Lists State
   const [usersList, setUsersList] = useState<User[]>([]);
-  
+  const [orgsList, setOrgsList] = useState<User[]>([]); // New: Daftar Organisasi
+
   // Modals
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   
-  // Form State (User)
+  // Form State
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userForm, setUserForm] = useState({ username: "", email: "", password: "", role: "voter" });
-  
-  // Filters
   const [userSearch, setUserSearch] = useState("");
 
   // --- API CALLS ---
+
+  const loadAdminProfile = async () => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      if (!token) return;
+      const res = await fetch("/api/user/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setUserData(json.user);
+        const currentLocal = JSON.parse(localStorage.getItem("user") || "{}");
+        localStorage.setItem("user", JSON.stringify({ ...currentLocal, ...json.user }));
+      }
+    } catch (e) { console.error("Failed loading profile:", e); }
+  };
 
   const loadDashboardData = async (token: string) => {
     try {
@@ -141,7 +158,20 @@ export default function AdminDashboard() {
     } catch(e) { console.error(e); }
   };
 
-  // Load Data Chart untuk System Tab
+  // NEW: Load Approved Organizations
+  const loadOrganizations = async () => {
+    const token = localStorage.getItem("accessToken");
+    if(!token) return;
+    try {
+      // Menggunakan API users dengan filter role organization
+      const res = await fetch("/api/admin/users?limit=100&role=organization", { 
+        headers: { Authorization: `Bearer ${token}` } 
+      });
+      const data = await res.json();
+      if(data.success) setOrgsList(data.data);
+    } catch(e) { console.error(e); }
+  };
+
   const loadSystemChartData = async () => {
     const token = localStorage.getItem("accessToken");
     if(!token) return;
@@ -152,7 +182,7 @@ export default function AdminDashboard() {
     } catch(e) { console.error("System Data Error:", e); }
   };
 
-  // Load Logs dengan Dual Filter & Pagination
+  // --- FIXED: Logs Filter Logic ---
   const loadLogsByPage = async (page: number) => {
     const token = localStorage.getItem("accessToken");
     if(!token) return;
@@ -160,8 +190,18 @@ export default function AdminDashboard() {
     setLogLoading(true);
     try {
       let url = `/api/admin/audit?page=${page}&limit=20`; 
-      if(logFilter !== "ALL") url += `&action=${logFilter}`;
-      if(actorFilter !== "ALL") url += `&role=${actorFilter.toLowerCase()}`;
+      
+      // Filter Action
+      if (logFilter !== "ALL") {
+          url += `&action=${logFilter}`;
+      }
+      
+      // Filter Actor (Role)
+      if (actorFilter !== "ALL") {
+          // Convert to lowercase to match typical query param style, 
+          // (API will uppercase it to match Enum)
+          url += `&role=${actorFilter.toLowerCase()}`;
+      }
       
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -169,15 +209,18 @@ export default function AdminDashboard() {
       if(data.success) {
           setLogsList(data.data);
           if(data.pagination) setLogTotalPages(data.pagination.totalPages);
+      } else {
+          setLogsList([]);
       }
     } catch(e) { 
         console.error("Logs Load Error:", e); 
+        setLogsList([]);
     } finally {
         setLogLoading(false);
     }
   };
 
-  // --- HANDLERS (EXPORT / BACKUP) ---
+  // --- HANDLERS ---
 
   const handleSystemAction = async (action: "backup_full" | "export_users" | "export_logs") => {
       const token = localStorage.getItem("accessToken");
@@ -192,7 +235,6 @@ export default function AdminDashboard() {
           const data = await res.json();
 
           if(data.success) {
-              // Trigger Download
               const blob = new Blob([data.content], { type: data.type });
               const url = window.URL.createObjectURL(blob);
               const a = document.createElement('a');
@@ -204,7 +246,6 @@ export default function AdminDashboard() {
               alert("Operation failed: " + data.message);
           }
       } catch(e) {
-          console.error(e);
           alert("Error performing system action");
       }
   };
@@ -216,6 +257,7 @@ export default function AdminDashboard() {
         method: "POST", headers: { Authorization: `Bearer ${token}` } 
     });
     loadDashboardData(token!);
+    loadOrganizations(); // Refresh table
   };
 
   const handleRejectOrg = async (id: number) => {
@@ -232,19 +274,35 @@ export default function AdminDashboard() {
     const token = localStorage.getItem("accessToken");
     const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
     
-    if (editingUser) {
-        await fetch("/api/admin/users", {
-            method: "PUT", headers,
-            body: JSON.stringify({ userId: editingUser.id, updates: userForm })
-        });
-    } else {
-        await fetch("/api/admin/users", {
-            method: "POST", headers,
-            body: JSON.stringify(userForm)
-        });
+    // Validasi
+    if (!userForm.username || !userForm.email) {
+      alert("Username and Email are required"); return;
     }
-    setIsUserModalOpen(false);
-    loadUsers();
+    if (!editingUser && !userForm.password) {
+      alert("Password is required for new users"); return;
+    }
+
+    try {
+      if (editingUser) {
+          const res = await fetch("/api/admin/users", {
+              method: "PUT", headers,
+              body: JSON.stringify({ userId: editingUser.id, updates: userForm })
+          });
+          if(!res.ok) throw new Error("Failed to update");
+      } else {
+          const res = await fetch("/api/admin/users", {
+              method: "POST", headers,
+              body: JSON.stringify(userForm)
+          });
+          if(!res.ok) throw new Error("Failed to create user");
+      }
+      setIsUserModalOpen(false);
+      loadUsers();
+      loadOrganizations(); // Refresh org table if needed
+      alert("Operation successful");
+    } catch (e: any) {
+      alert(e.message || "Error saving user");
+    }
   };
 
   const handleDeleteUser = async (id: number) => {
@@ -254,6 +312,7 @@ export default function AdminDashboard() {
           method: "DELETE", headers: { Authorization: `Bearer ${token}` }
       });
       loadUsers();
+      loadOrganizations();
   };
 
   const handleCleanupLogs = async () => {
@@ -276,31 +335,41 @@ export default function AdminDashboard() {
   // --- EFFECTS ---
 
   useEffect(() => {
-    const token = localStorage.getItem("accessToken");
-    const storedUser = localStorage.getItem("user");
-    
-    if (!token || !storedUser) {
-        router.push("/auth/login");
-        return;
-    }
+    const checkAuth = async () => {
+      try {
+        const storedUser = localStorage.getItem("user");
+        const token = localStorage.getItem("accessToken");
 
-    try {
-      const userData = JSON.parse(storedUser);
-      if(userData.role !== "admin") {
+        if (!storedUser || !token) {
           router.push("/auth/login");
           return;
+        }
+        
+        const userDataLocal = JSON.parse(storedUser);
+        if (userDataLocal.role !== "admin") {
+          router.push("/auth/login");
+          return;
+        }
+        
+        setUser(userDataLocal);
+        loadDashboardData(token);
+        loadAdminProfile(); 
+      } catch (error) {
+        router.push("/auth/login");
+      } finally {
+        setIsCheckingAuth(false);
       }
-      setUser(userData);
-      loadDashboardData(token);
-    } catch(e) {
-      router.push("/auth/login");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+    };
 
+    checkAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); 
+
+  // Lazy Load Data per Tab
   useEffect(() => {
       if(activeTab === "Users") loadUsers();
-      if(activeTab === "System") loadSystemChartData(); // NEW
+      if(activeTab === "Organizations") loadOrganizations(); // Load list org
+      if(activeTab === "System") loadSystemChartData();
       if(activeTab === "Logs") {
           setLogPage(1); 
           loadLogsByPage(1);
@@ -308,6 +377,7 @@ export default function AdminDashboard() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Refresh Logs saat filter/page berubah
   useEffect(() => {
       if(activeTab === "Logs") {
           loadLogsByPage(logPage);
@@ -315,8 +385,17 @@ export default function AdminDashboard() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logPage, logFilter, actorFilter]); 
 
-  // --- UTILS ---
-  const getInitials = (name: string) => name.substring(0, 2).toUpperCase();
+  // --- RENDER ---
+  if (isCheckingAuth || loading) {
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${darkMode ? "bg-black" : "bg-gray-50"}`}>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+      </div>
+    );
+  }
+
+  const currentUser = userData || user; 
+  const getInitials = (name: string) => name ? name.substring(0, 2).toUpperCase() : "AD";
 
   return (
     <div className={darkMode ? "min-h-screen flex flex-col bg-gradient-to-br from-black via-neutral-900 to-emerald-950 text-white" : "min-h-screen flex flex-col bg-gray-100 text-gray-900"}>
@@ -335,11 +414,15 @@ export default function AdminDashboard() {
               </button>
 
               <button onClick={() => setSettingsOpen(true)} className={`flex items-center gap-3 pl-1 pr-3 py-1 rounded-full border ${darkMode ? "border-emerald-800/50 bg-neutral-900/50" : "bg-white border-gray-300"}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${darkMode ? "bg-emerald-900 border-emerald-700 text-emerald-300" : "bg-emerald-100 text-emerald-700"}`}>
-                  {user?.profileImage ? <img src={user.profileImage} className="w-full h-full object-cover rounded-full"/> : <span className="text-xs font-bold">{getInitials(user?.username || "AD")}</span>}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center border overflow-hidden ${darkMode ? "bg-emerald-900 border-emerald-700 text-emerald-300" : "bg-emerald-100 text-emerald-700"}`}>
+                  {currentUser?.profileImage ? (
+                    <img src={currentUser.profileImage} className="w-full h-full object-cover"/>
+                  ) : (
+                    <span className="text-xs font-bold">{getInitials(currentUser?.username || "AD")}</span>
+                  )}
                 </div>
                 <div className="hidden sm:block text-left">
-                  <p className="text-sm font-medium leading-none">{user?.username}</p>
+                  <p className="text-sm font-medium leading-none">{currentUser?.username}</p>
                   <p className="text-[10px] opacity-70">Administrator</p>
                 </div>
               </button>
@@ -350,7 +433,7 @@ export default function AdminDashboard() {
       {/* TABS */}
       <nav className={darkMode ? "bg-neutral-900/40 border-b border-emerald-800/30" : "bg-white border-b border-gray-200"}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-6 overflow-x-auto pb-1">
+          <div className="flex space-x-6 overflow-x-auto pb-1 scrollbar-hide">
             {["Overview", "Users", "Organizations", "System", "Logs"].map(tab => (
                <button key={tab} onClick={() => setActiveTab(tab as Tab)} className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${activeTab === tab ? (darkMode ? "border-emerald-400 text-emerald-300" : "border-emerald-600 text-emerald-700") : "border-transparent opacity-60"}`}>
                  {tab}
@@ -366,7 +449,6 @@ export default function AdminDashboard() {
         {/* 1. OVERVIEW TAB */}
         {activeTab === "Overview" && stats && (
            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-              {/* Stats Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                  {[
                     { label: "Total Users", value: stats.totalUsers, icon: Users },
@@ -382,7 +464,6 @@ export default function AdminDashboard() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                 {/* Pending Orgs */}
                  <div className={`p-6 rounded-xl border ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
                     <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Activity size={18}/> Pending Organizations</h3>
                     {pendingOrgs.length === 0 ? <p className="opacity-50 text-sm">No pending registrations.</p> : (
@@ -400,7 +481,6 @@ export default function AdminDashboard() {
                     )}
                  </div>
 
-                 {/* Recent Activity */}
                  <div className={`p-6 rounded-xl border ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
                     <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Shield size={18}/> Recent Activity (Live)</h3>
                     <div className="space-y-3">
@@ -435,7 +515,7 @@ export default function AdminDashboard() {
 
                 <div className={`overflow-hidden rounded-xl border ${darkMode ? "border-emerald-900" : "border-gray-200"}`}>
                     <table className={`min-w-full text-sm ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
-                        <thead className={darkMode ? "bg-neutral-900 text-emerald-500" : "bg-gray-50 text-gray-700"}>
+                        <thead className={darkMode ? "bg-neutral-900" : "bg-gray-50"}>
                             <tr><th className="px-6 py-4 text-left">User</th><th className="px-6 py-4 text-left">Role</th><th className="px-6 py-4 text-left">Status</th><th className="px-6 py-4 text-right">Actions</th></tr>
                         </thead>
                         <tbody className={`divide-y ${darkMode ? "divide-neutral-800 bg-neutral-900/50" : "divide-gray-200 bg-white"}`}>
@@ -456,12 +536,14 @@ export default function AdminDashboard() {
             </motion.div>
         )}
 
-        {/* 3. ORGANIZATIONS TAB */}
+        {/* 3. ORGANIZATIONS TAB (NEW TABLE) */}
         {activeTab === "Organizations" && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+                
+                {/* Pending Approvals */}
                 <div className={`p-6 rounded-xl border ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
-                    <h3 className="font-bold text-lg mb-4 text-yellow-500 flex items-center gap-2"><AlertTriangle size={18}/> Needs Approval</h3>
-                    {pendingOrgs.length === 0 ? <p className="opacity-50 text-sm">No pending organizations.</p> : (
+                    <h3 className="font-bold text-lg mb-4 text-yellow-500 flex items-center gap-2"><AlertTriangle size={18}/> Pending Registrations</h3>
+                    {pendingOrgs.length === 0 ? <p className="opacity-50 text-sm">No pending registrations.</p> : (
                         <div className="grid gap-4">
                             {pendingOrgs.map(org => (
                                 <div key={org.id} className={`p-4 rounded-lg border flex justify-between items-center ${darkMode ? "bg-black/20 border-emerald-900" : "bg-gray-50 border-gray-200"}`}>
@@ -479,78 +561,76 @@ export default function AdminDashboard() {
                         </div>
                     )}
                 </div>
-                <div className="flex justify-end">
-                    <button onClick={() => { setEditingUser(null); setUserForm({username:"", email:"", password:"", role:"organization"}); setIsUserModalOpen(true); }} className="bg-emerald-600 text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-emerald-700 font-bold shadow-lg">
-                        <Plus size={20}/> Create Organization Account Manually
-                    </button>
+
+                {/* Registered Organizations Table (NEW) */}
+                <div>
+                   <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-bold text-lg flex items-center gap-2"><Building2 size={18}/> Registered Organizations</h3>
+                      <button onClick={() => { 
+                          setEditingUser(null); 
+                          setUserForm({username:"", email:"", password:"", role:"organization"}); 
+                          setIsUserModalOpen(true); 
+                      }} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 font-bold shadow-lg text-sm">
+                          <Plus size={16}/> Create Manual Account
+                      </button>
+                   </div>
+
+                   <div className={`overflow-hidden rounded-xl border ${darkMode ? "border-emerald-900" : "border-gray-200"}`}>
+                      <table className={`min-w-full text-sm ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
+                          <thead className={darkMode ? "bg-neutral-900" : "bg-gray-50"}>
+                              <tr><th className="px-6 py-4 text-left">Organization Name</th><th className="px-6 py-4 text-left">Email</th><th className="px-6 py-4 text-left">Status</th><th className="px-6 py-4 text-left">Joined At</th><th className="px-6 py-4 text-right">Actions</th></tr>
+                          </thead>
+                          <tbody className={`divide-y ${darkMode ? "divide-neutral-800 bg-neutral-900/50" : "divide-gray-200 bg-white"}`}>
+                              {orgsList.length === 0 ? (
+                                  <tr><td colSpan={5} className="px-6 py-8 text-center opacity-50">No organizations found.</td></tr>
+                              ) : orgsList.map(org => (
+                                  <tr key={org.id} className={darkMode ? "hover:bg-neutral-800" : "hover:bg-gray-50"}>
+                                      <td className="px-6 py-4 font-bold text-emerald-600">{org.username}</td>
+                                      <td className="px-6 py-4 opacity-70">{org.email}</td>
+                                      <td className="px-6 py-4"><span className="px-2 py-1 rounded text-xs bg-green-500/10 text-green-500 border border-green-500/20 uppercase">{org.status}</span></td>
+                                      <td className="px-6 py-4 opacity-60 font-mono text-xs">{new Date(org.createdAt).toLocaleDateString()}</td>
+                                      <td className="px-6 py-4 text-right space-x-2">
+                                          <button onClick={() => { setEditingUser(org); setUserForm({ username: org.username, email: org.email, role: org.role, password: "" }); setIsUserModalOpen(true); }} className="p-2 hover:text-emerald-500"><Edit size={16}/></button>
+                                          <button onClick={() => handleDeleteUser(org.id)} className="p-2 hover:text-red-500"><Trash2 size={16}/></button>
+                                      </td>
+                                  </tr>
+                              ))}
+                          </tbody>
+                      </table>
+                   </div>
                 </div>
             </motion.div>
         )}
 
-        {/* 4. SYSTEM TAB (NEW FEATURES) */}
+        {/* 4. SYSTEM TAB */}
         {activeTab === "System" && systemChartData && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-                
-                {/* System Overview Charts */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className={`p-6 rounded-xl border flex flex-col items-center justify-center ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
                         <h4 className="text-lg font-bold mb-6 flex items-center gap-2"><Users size={18}/> User Roles Distribution</h4>
-                        {/* Map API data to color scheme */}
-                        <DonutChart 
-                            data={systemChartData.roles.map((r, i) => ({
-                                label: r.label,
-                                value: r.value,
-                                color: ["#10B981", "#3B82F6", "#F59E0B"][i % 3] // Emerald, Blue, Amber
-                            }))} 
-                            size={200}
-                        />
+                        <DonutChart data={systemChartData.roles.map((r, i) => ({ label: r.label, value: r.value, color: ["#10B981", "#3B82F6", "#F59E0B"][i % 3] }))} size={200} />
                     </div>
                     <div className={`p-6 rounded-xl border ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
                         <h4 className="text-lg font-bold mb-6 flex items-center gap-2"><Server size={18}/> System Volume</h4>
                         <div className="h-[200px] flex items-end justify-center">
-                            <BarChart 
-                                data={systemChartData.volume.map((v, i) => ({
-                                    label: v.label,
-                                    value: v.value,
-                                    color: ["#10B981", "#6366F1", "#EC4899"][i % 3]
-                                }))}
-                                height={200}
-                            />
+                            <BarChart data={systemChartData.volume.map((v, i) => ({ label: v.label, value: v.value, color: ["#10B981", "#6366F1", "#EC4899"][i % 3] }))} height={200} />
                         </div>
                     </div>
                 </div>
 
-                {/* Data Management Card */}
                 <div className={`p-6 rounded-xl border ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
                     <h3 className="text-xl font-bold mb-2 flex items-center gap-2"><HardDrive size={20}/> Data Management</h3>
-                    <p className="opacity-60 mb-6 text-sm">Export system data for backup or analysis. All exports are generated in real-time.</p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <button onClick={() => handleSystemAction("backup_full")} className="p-4 border rounded-lg hover:bg-emerald-500/10 hover:border-emerald-500 transition-all text-left group">
-                            <Database className="mb-2 text-emerald-500" size={24}/>
-                            <div className="font-bold">Full Database Backup</div>
-                            <div className="text-xs opacity-60">Export complete system state as JSON</div>
-                        </button>
-                        <button onClick={() => handleSystemAction("export_users")} className="p-4 border rounded-lg hover:bg-blue-500/10 hover:border-blue-500 transition-all text-left group">
-                            <Users className="mb-2 text-blue-500" size={24}/>
-                            <div className="font-bold">Export Users</div>
-                            <div className="text-xs opacity-60">Download user list as CSV</div>
-                        </button>
-                        <button onClick={() => handleSystemAction("export_logs")} className="p-4 border rounded-lg hover:bg-purple-500/10 hover:border-purple-500 transition-all text-left group">
-                            <FileText className="mb-2 text-purple-500" size={24}/>
-                            <div className="font-bold">Export Logs</div>
-                            <div className="text-xs opacity-60">Download audit trail as CSV</div>
-                        </button>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                        <button onClick={() => handleSystemAction("backup_full")} className="p-4 border rounded-lg hover:bg-emerald-500/10 hover:border-emerald-500 transition-all text-left group"><Database className="mb-2 text-emerald-500" size={24}/><div className="font-bold">Full Database Backup</div><div className="text-xs opacity-60">Export complete system JSON</div></button>
+                        <button onClick={() => handleSystemAction("export_users")} className="p-4 border rounded-lg hover:bg-blue-500/10 hover:border-blue-500 transition-all text-left group"><Users className="mb-2 text-blue-500" size={24}/><div className="font-bold">Export Users</div><div className="text-xs opacity-60">Download user CSV</div></button>
+                        <button onClick={() => handleSystemAction("export_logs")} className="p-4 border rounded-lg hover:bg-purple-500/10 hover:border-purple-500 transition-all text-left group"><FileText className="mb-2 text-purple-500" size={24}/><div className="font-bold">Export Logs</div><div className="text-xs opacity-60">Download logs CSV</div></button>
                     </div>
                 </div>
 
-                {/* Maintenance Card */}
                 <div className={`p-6 rounded-xl border border-red-900/30 bg-red-900/5`}>
                     <h3 className="text-xl font-bold mb-2 text-red-500 flex items-center gap-2"><AlertTriangle size={20}/> Danger Zone</h3>
-                    <p className="opacity-60 mb-6 text-sm">Irreversible actions for system maintenance.</p>
-                    <button onClick={handleCleanupLogs} className="px-6 py-3 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-all flex items-center gap-2">
-                        <Trash2 size={18}/> Clean Old Audit Logs (30+ Days)
-                    </button>
+                    <p className="opacity-60 mb-6 text-sm">Irreversible actions.</p>
+                    <button onClick={handleCleanupLogs} className="px-6 py-3 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-all flex items-center gap-2"><Trash2 size={18}/> Clean Old Audit Logs (30+ Days)</button>
                 </div>
             </motion.div>
         )}
@@ -561,29 +641,14 @@ export default function AdminDashboard() {
                 <div className="flex flex-col md:flex-row gap-4 mb-6 justify-between items-start md:items-center">
                     <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto items-center">
                         <div className="relative w-full sm:w-48">
-                            <select 
-                                value={actorFilter}
-                                onChange={(e) => { setActorFilter(e.target.value); setLogPage(1); }}
-                                className={`w-full appearance-none pl-10 pr-8 py-2 rounded-lg text-sm font-medium border outline-none cursor-pointer ${darkMode ? "bg-neutral-800 border-emerald-800 text-emerald-100" : "bg-white border-gray-300 text-gray-700"}`}
-                            >
-                                <option value="ALL">All Actors</option>
-                                <option value="ADMIN">Admins</option>
-                                <option value="ORGANIZATION">Organizations</option>
-                                <option value="VOTER">Voters</option>
+                            <select value={actorFilter} onChange={(e) => { setActorFilter(e.target.value); setLogPage(1); }} className={`w-full appearance-none pl-10 pr-8 py-2 rounded-lg text-sm font-medium border outline-none cursor-pointer ${darkMode ? "bg-neutral-800 border-emerald-800 text-emerald-100" : "bg-white border-gray-300 text-gray-700"}`}>
+                                <option value="ALL">All Actors</option><option value="ADMIN">Admins</option><option value="ORGANIZATION">Organizations</option><option value="VOTER">Voters</option>
                             </select>
-                            <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50"/>
-                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50"/>
+                            <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50"/><ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 opacity-50"/>
                         </div>
-
                         <div className="flex gap-2 flex-wrap">
                             {["ALL", "LOGIN", "LOGOUT", "CREATE", "UPDATE", "DELETE"].map(filter => (
-                                <button 
-                                    key={filter} 
-                                    onClick={() => { setLogFilter(filter); setLogPage(1); }} 
-                                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${logFilter === filter ? "bg-emerald-600 text-white border-emerald-600" : "border-gray-500 opacity-50 hover:opacity-100"}`}
-                                >
-                                    {filter}
-                                </button>
+                                <button key={filter} onClick={() => { setLogFilter(filter); setLogPage(1); }} className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${logFilter === filter ? "bg-emerald-600 text-white border-emerald-600" : "border-gray-500 opacity-50 hover:opacity-100"}`}>{filter}</button>
                             ))}
                         </div>
                     </div>
@@ -592,58 +657,23 @@ export default function AdminDashboard() {
 
                 <div className={`rounded-xl border overflow-hidden ${darkMode ? "border-emerald-900" : "border-gray-200"}`}>
                     <table className={`min-w-full text-sm ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
-                        <thead className={darkMode ? "bg-neutral-900" : "bg-gray-50"}>
-                            <tr><th className="px-6 py-3 text-left">Time</th><th className="px-6 py-3 text-left">Actor</th><th className="px-6 py-3 text-left">Action</th><th className="px-6 py-3 text-left">Details</th></tr>
-                        </thead>
+                        <thead className={darkMode ? "bg-neutral-900" : "bg-gray-50"}><tr><th className="px-6 py-3 text-left">Time</th><th className="px-6 py-3 text-left">Actor</th><th className="px-6 py-3 text-left">Action</th><th className="px-6 py-3 text-left">Details</th></tr></thead>
                         <tbody className={`divide-y ${darkMode ? "divide-neutral-800 bg-neutral-900/50" : "divide-gray-200 bg-white"}`}>
-                            {logsList.length === 0 && !logLoading ? (
-                                <tr><td colSpan={4} className="px-6 py-8 text-center opacity-50">No logs found matching your filters.</td></tr>
-                            ) : logsList.map(log => (
+                            {logsList.length === 0 && !logLoading ? <tr><td colSpan={4} className="px-6 py-8 text-center opacity-50">No logs found matching your filters.</td></tr> : logsList.map(log => (
                                 <tr key={log.id} className="hover:opacity-80">
                                     <td className="px-6 py-3 font-mono text-xs opacity-50">{new Date(log.createdAt).toLocaleString()}</td>
-                                    <td className="px-6 py-3 font-bold">
-                                        {log.user.username} 
-                                        <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide border ${
-                                            log.user.role === 'admin' ? 'border-red-500/30 text-red-500' : 
-                                            log.user.role === 'organization' ? 'border-blue-500/30 text-blue-500' : 
-                                            'border-gray-500/30 text-gray-500'
-                                        }`}>
-                                            {log.user.role}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <span className={`px-2 py-0.5 rounded text-xs border ${
-                                            log.action.includes("DELETE") ? "bg-red-500/10 text-red-500 border-red-500/20" :
-                                            log.action.includes("UPDATE") ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" :
-                                            log.action === "LOGOUT" ? "bg-gray-500/10 text-gray-400 border-gray-500/20" :
-                                            "bg-blue-500/10 text-blue-500 border-blue-500/20"
-                                        }`}>
-                                            {log.action}
-                                        </span>
-                                    </td>
+                                    <td className="px-6 py-3 font-bold">{log.user.username} <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide border ${log.user.role === 'admin' ? 'border-red-500/30 text-red-500' : log.user.role === 'organization' ? 'border-blue-500/30 text-blue-500' : 'border-gray-500/30 text-gray-500'}`}>{log.user.role}</span></td>
+                                    <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded text-xs border ${log.action.includes("DELETE") ? "bg-red-500/10 text-red-500 border-red-500/20" : log.action.includes("UPDATE") ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" : log.action === "LOGOUT" ? "bg-gray-500/10 text-gray-400 border-gray-500/20" : "bg-blue-500/10 text-blue-500 border-blue-500/20"}`}>{log.action}</span></td>
                                     <td className="px-6 py-3 opacity-80 truncate max-w-xs" title={log.details}>{log.details}</td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
-                    
                     <div className={`px-6 py-4 border-t flex justify-between items-center ${darkMode ? "border-emerald-900 bg-neutral-900" : "border-gray-200 bg-gray-50"}`}>
                         <span className="text-xs opacity-50">Page {logPage} of {logTotalPages}</span>
                         <div className="flex gap-2">
-                            <button 
-                                onClick={() => setLogPage(p => Math.max(1, p - 1))} 
-                                disabled={logPage === 1 || logLoading}
-                                className="p-1 rounded hover:bg-gray-500/20 disabled:opacity-30"
-                            >
-                                <ChevronLeft size={20}/>
-                            </button>
-                            <button 
-                                onClick={() => setLogPage(p => Math.min(logTotalPages, p + 1))} 
-                                disabled={logPage === logTotalPages || logLoading}
-                                className="p-1 rounded hover:bg-gray-500/20 disabled:opacity-30"
-                            >
-                                <ChevronRight size={20}/>
-                            </button>
+                            <button onClick={() => setLogPage(p => Math.max(1, p - 1))} disabled={logPage === 1 || logLoading} className="p-1 rounded hover:bg-gray-500/20 disabled:opacity-30"><ChevronLeft size={20}/></button>
+                            <button onClick={() => setLogPage(p => Math.min(logTotalPages, p + 1))} disabled={logPage === logTotalPages || logLoading} className="p-1 rounded hover:bg-gray-500/20 disabled:opacity-30"><ChevronRight size={20}/></button>
                         </div>
                     </div>
                 </div>
@@ -652,16 +682,9 @@ export default function AdminDashboard() {
 
       </main>
 
-      <AdminProfileModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        darkMode={darkMode}
-        user={user}
-        onLogout={handleLogout}
-        onUpdateSuccess={() => { /* Reload Logic */ }}
-      />
+      <AdminProfileModal open={settingsOpen} onClose={() => setSettingsOpen(false)} darkMode={darkMode} user={currentUser} onLogout={handleLogout} onUpdateSuccess={() => { loadAdminProfile(); setSettingsOpen(false); }} />
 
-      {/* --- MODAL: CREATE/EDIT USER --- */}
+      {/* MODAL: CREATE/EDIT USER */}
       <AnimatePresence>
         {isUserModalOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -670,13 +693,13 @@ export default function AdminDashboard() {
                     <form onSubmit={handleSaveUser} className="space-y-4">
                         <div><label className="block text-sm mb-1 opacity-70">Username</label><input type="text" required value={userForm.username} onChange={e => setUserForm({...userForm, username: e.target.value})} className={`w-full p-2 rounded border bg-transparent ${darkMode ? "border-emerald-800" : "border-gray-300"}`}/></div>
                         <div><label className="block text-sm mb-1 opacity-70">Email</label><input type="email" required value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className={`w-full p-2 rounded border bg-transparent ${darkMode ? "border-emerald-800" : "border-gray-300"}`}/></div>
-                        {!editingUser && <div><label className="block text-sm mb-1 opacity-70">Password</label><input type="password" required value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} className={`w-full p-2 rounded border bg-transparent ${darkMode ? "border-emerald-800" : "border-gray-300"}`}/></div>}
+                        {(!editingUser || userForm.password) && (
+                            <div><label className="block text-sm mb-1 opacity-70">{editingUser ? "Password (Blank to keep)" : "Password"}</label><input type="password" required={!editingUser} value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} className={`w-full p-2 rounded border bg-transparent ${darkMode ? "border-emerald-800" : "border-gray-300"}`}/></div>
+                        )}
                         <div>
                             <label className="block text-sm mb-1 opacity-70">Role</label>
                             <select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value})} className={`w-full p-2 rounded border bg-transparent ${darkMode ? "border-emerald-800 bg-neutral-900" : "border-gray-300 bg-white"}`}>
-                                <option value="voter">Voter</option>
-                                <option value="organization">Organization</option>
-                                <option value="admin">Admin</option>
+                                <option value="voter">Voter</option><option value="organization">Organization</option><option value="admin">Admin</option>
                             </select>
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
