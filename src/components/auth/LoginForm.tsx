@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button-green";
-import { Sun, Moon, LogIn, ArrowLeft } from "lucide-react";
+import { Sun, Moon, LogIn, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
 export default function Home() {
   const router = useRouter();
@@ -16,6 +16,7 @@ export default function Home() {
   // --- Login states ---
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // State untuk toggle password
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -63,13 +64,10 @@ export default function Home() {
       }
 
       if (data.success && data.user && data.tokens?.accessToken) {
-        // Store tokens in localStorage
         localStorage.setItem("accessToken", data.tokens.accessToken);
         if (data.tokens.refreshToken) {
           localStorage.setItem("refreshToken", data.tokens.refreshToken);
         }
-
-        // Store user data
         localStorage.setItem("user", JSON.stringify(data.user));
 
         setTimeout(() => {
@@ -98,6 +96,8 @@ export default function Home() {
           console.error("Unknown error:", err);
           setError("Unexpected error occurred");
         }
+      } finally {
+        setLoading(false); // Pastikan loading mati walau error
       }
   };
 
@@ -120,7 +120,7 @@ export default function Home() {
         {darkMode ? <Sun size={20} /> : <Moon size={20} />}
       </motion.button>
 
-      {/* MOBILE ANIMATION */}
+      {/* MOBILE ANIMATION LAYOUT */}
       <div className="flex-1 flex md:hidden justify-center items-center perspective-[1200px] relative overflow-hidden">
         <motion.div
           key={showLogin ? "login" : "info"}
@@ -152,7 +152,7 @@ export default function Home() {
               </Button>
             </motion.div>
           ) : (
-            // Login side
+            // Login side (Mobile)
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -173,11 +173,7 @@ export default function Home() {
 
               <form onSubmit={handleLogin} className="space-y-5">
                 <div>
-                  <label
-                    className={`block font-medium mb-1 ${
-                      darkMode ? "text-gray-300" : "text-gray-700"
-                    }`}
-                  >
+                  <label className={`block font-medium mb-1 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
                     Username
                   </label>
                   <input
@@ -193,25 +189,33 @@ export default function Home() {
                   />
                 </div>
 
+                {/* Password Input Mobile */}
                 <div>
-                  <label
-                    className={`block font-medium mb-1 ${
-                      darkMode ? "text-gray-300" : "text-gray-700"
-                    }`}
-                  >
+                  <label className={`block font-medium mb-1 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
                     Password
                   </label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:outline-none ${
-                      darkMode
-                        ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
-                        : "border-gray-300 focus:ring-emerald-500"
-                    }`}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className={`w-full border rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:outline-none ${
+                        darkMode
+                          ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
+                          : "border-gray-300 focus:ring-emerald-500"
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors ${
+                        darkMode ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"
+                      }`}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                 </div>
 
                 {error && (
@@ -300,11 +304,7 @@ export default function Home() {
 
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label
-                  className={`block font-medium mb-1 ${
-                    darkMode ? "text-gray-300" : "text-gray-700"
-                  }`}
-                >
+                <label className={`block font-medium mb-1 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
                   Username
                 </label>
                 <input
@@ -320,25 +320,33 @@ export default function Home() {
                 />
               </div>
 
+              {/* Password Input Desktop */}
               <div>
-                <label
-                  className={`block font-medium mb-1 ${
-                    darkMode ? "text-gray-300" : "text-gray-700"
-                  }`}
-                >
+                <label className={`block font-medium mb-1 ${darkMode ? "text-gray-300" : "text-gray-700"}`}>
                   Password
                 </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className={`w-full border rounded-lg px-4 py-2 focus:ring-2 focus:outline-none ${
-                    darkMode
-                      ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
-                      : "border-gray-300 focus:ring-emerald-500"
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className={`w-full border rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:outline-none ${
+                      darkMode
+                        ? "bg-black border-emerald-800 text-white focus:ring-emerald-500"
+                        : "border-gray-300 focus:ring-emerald-500"
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors ${
+                      darkMode ? "text-gray-400 hover:text-white" : "text-gray-500 hover:text-black"
+                    }`}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
 
               {error && (

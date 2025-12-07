@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { X, Camera, LogOut, Lock, Save, Loader2 } from "lucide-react";
+import ChangePasswordModal from "./ChangePasswordModal";
 
 interface Props {
   open: boolean;
@@ -10,20 +12,22 @@ interface Props {
     username: string;
     fullName: string | null;
     profileImage?: string | null;
+    studentId?: string; // Menambahkan studentId jika ada di schema
   } | null;
+  onLogout: () => void; // Prop baru untuk handle logout
 }
 
-export default function ProfileSettingsModal({ open, onClose, darkMode, user }: Props) {
+export default function ProfileSettingsModal({ open, onClose, darkMode, user, onLogout }: Props) {
   const [username, setUsername] = useState(user?.username || "");
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [profileImage, setProfileImage] = useState(user?.profileImage || "");
-  const [newPassword, setNewPassword] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
+  
+  // State untuk Change Password Modal
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   if (!open) return null;
 
-  /** Convert file to base64 */
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -35,11 +39,9 @@ export default function ProfileSettingsModal({ open, onClose, darkMode, user }: 
     reader.readAsDataURL(file);
   };
 
-  /** Save Profile Data */
   const handleSaveProfile = async () => {
     try {
       setLoading(true);
-
       const token = localStorage.getItem("accessToken");
 
       const res = await fetch("/api/user/profile", {
@@ -51,50 +53,19 @@ export default function ProfileSettingsModal({ open, onClose, darkMode, user }: 
         body: JSON.stringify({
           username,
           fullName,
-          profileImage, // base64 stored
+          profileImage,
         }),
       });
 
       const json = await res.json();
       if (json.success) {
-        alert("Profile updated!");
-        onClose();
+        alert("Profile updated successfully!");
+        // Opsional: onClose(); // Tutup modal setelah save jika diinginkan
       } else {
         alert(json.message);
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /** Change Password */
-  const handleChangePassword = async () => {
-    try {
-      setLoading(true);
-
-      const token = localStorage.getItem("accessToken");
-
-      const res = await fetch("/api/user/profile/password", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
-      });
-
-      const json = await res.json();
-
-      if (json.success) {
-        alert("Password changed successfully!");
-        setNewPassword("");
-        setCurrentPassword("");
-      } else {
-        alert(json.message);
-      }
+    } catch (e) {
+      alert("Failed to update profile");
     } finally {
       setLoading(false);
     }
@@ -103,126 +74,137 @@ export default function ProfileSettingsModal({ open, onClose, darkMode, user }: 
   return (
     <>
       {/* BACKDROP */}
-      <div
-        className="fixed inset-0 bg-black/60 z-[9998]"
-        onClick={onClose}
-      ></div>
+      <div className="fixed inset-0 bg-black/60 z-[9998]" onClick={onClose}></div>
 
       {/* MODAL CONTAINER */}
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none p-4">
         <div
-          className={`pointer-events-auto w-full max-w-md rounded-xl p-6 shadow-xl border
+          className={`pointer-events-auto w-full max-w-md rounded-2xl p-6 shadow-2xl border relative flex flex-col max-h-[90vh] overflow-y-auto
           ${darkMode ? "bg-neutral-900 border-emerald-700 text-emerald-100" : "bg-white border-gray-200 text-gray-900"}
         `}
         >
-          <h2 className="text-xl font-bold mb-4">Profile Settings</h2>
+          {/* HEADER: TITLE & CLOSE BUTTON */}
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold">Edit Profile</h2>
+            <button 
+              onClick={onClose} 
+              className={`p-2 rounded-full transition-colors ${darkMode ? "hover:bg-neutral-800 text-gray-400 hover:text-white" : "hover:bg-gray-100 text-gray-500 hover:text-black"}`}
+            >
+              <X size={20} />
+            </button>
+          </div>
 
-          {/* PROFILE IMAGE */}
-          <div className="mb-4 flex items-center space-x-4">
-            <img
-              src={
-                profileImage ||
-                "https://ui-avatars.com/api/?name=User&background=10a37f&color=fff"
-              }
-              alt="profile"
-              className="w-16 h-16 rounded-full object-cover border"
-            />
+          {/* PROFILE IMAGE SECTION */}
+          <div className="flex flex-col items-center mb-8">
+            <div className="relative group cursor-pointer">
+              <img
+                src={profileImage || `https://ui-avatars.com/api/?name=${username}&background=10a37f&color=fff`}
+                alt="profile"
+                className={`w-24 h-24 rounded-full object-cover border-4 ${darkMode ? "border-emerald-800" : "border-emerald-100"}`}
+              />
+              <label className="absolute bottom-0 right-0 bg-emerald-600 p-2 rounded-full text-white cursor-pointer shadow-lg hover:bg-emerald-700 transition-colors">
+                <Camera size={16} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            <p className={`mt-3 text-sm ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+              Click camera icon to upload
+            </p>
+          </div>
+
+          {/* FORM INPUTS */}
+          <div className="space-y-4 mb-8">
+            <div>
+              <label className="text-sm font-medium opacity-80 mb-1 block">Username</label>
+              <input
+                className={`w-full px-4 py-2.5 rounded-lg border focus:ring-2 focus:ring-emerald-500/50 outline-none transition-all ${
+                  darkMode
+                    ? "bg-neutral-800 border-emerald-800 text-emerald-100 focus:border-emerald-500"
+                    : "bg-gray-50 border-gray-300 text-gray-900 focus:border-emerald-500"
+                }`}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
 
             <div>
-              <label className="text-sm opacity-70">Change Profile Image</label>
+              <label className="text-sm font-medium opacity-80 mb-1 block">Full Name</label>
               <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="mt-1 text-sm"
+                className={`w-full px-4 py-2.5 rounded-lg border focus:ring-2 focus:ring-emerald-500/50 outline-none transition-all ${
+                  darkMode
+                    ? "bg-neutral-800 border-emerald-800 text-emerald-100 focus:border-emerald-500"
+                    : "bg-gray-50 border-gray-300 text-gray-900 focus:border-emerald-500"
+                }`}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
               />
             </div>
           </div>
 
-          {/* USERNAME */}
-          <div className="mb-3">
-            <label className="text-sm opacity-70">Username</label>
-            <input
-              className={`w-full px-3 py-2 rounded-md mt-1 border ${
-                darkMode
-                  ? "bg-neutral-800 border-emerald-700 text-emerald-100"
-                  : "bg-white border-gray-300"
-              }`}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-
-          {/* FULL NAME */}
-          <div className="mb-6">
-            <label className="text-sm opacity-70">Full Name</label>
-            <input
-              className={`w-full px-3 py-2 rounded-md mt-1 border ${
-                darkMode
-                  ? "bg-neutral-800 border-emerald-700 text-emerald-100"
-                  : "bg-white border-gray-300"
-              }`}
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          </div>
-
-          {/* PASSWORD SECTION */}
-          <h3 className="font-semibold mb-2">Change Password</h3>
-
-          <div className="mb-3">
-            <label className="text-sm opacity-70">Current Password</label>
-            <input
-              type="password"
-              className={`w-full px-3 py-2 rounded-md mt-1 border ${
-                darkMode
-                  ? "bg-neutral-800 border-emerald-700 text-emerald-100"
-                  : "bg-white border-gray-300"
-              }`}
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-            />
-          </div>
-
-          <div className="mb-6">
-            <label className="text-sm opacity-70">New Password</label>
-            <input
-              type="password"
-              className={`w-full px-3 py-2 rounded-md mt-1 border ${
-                darkMode
-                  ? "bg-neutral-800 border-emerald-700 text-emerald-100"
-                  : "bg-white border-gray-300"
-              }`}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
-          </div>
-
-          {/* ACTION BUTTONS */}
-          <div className="flex justify-between mt-6">
+          {/* ACTION BUTTONS (Change Password & Logout) */}
+          <div className="space-y-3 pt-6 border-t border-gray-200 dark:border-gray-800">
             <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-md bg-gray-300 hover:bg-gray-400 text-black"
+              onClick={() => setIsPasswordModalOpen(true)}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-all ${
+                darkMode 
+                  ? "bg-neutral-800/50 border-emerald-800 hover:bg-neutral-800 hover:border-emerald-600" 
+                  : "bg-gray-50 border-gray-200 hover:bg-gray-100 hover:border-gray-300"
+              }`}
             >
-              Close
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-md ${darkMode ? "bg-neutral-700 text-emerald-400" : "bg-white text-emerald-600 shadow-sm"}`}>
+                  <Lock size={18} />
+                </div>
+                <div className="text-left">
+                  <span className="block text-sm font-semibold">Change Password</span>
+                  <span className="block text-xs opacity-60">Update your security credentials</span>
+                </div>
+              </div>
+              <span className="text-xs opacity-50">Edit</span>
             </button>
 
             <button
-              onClick={handleSaveProfile}
-              disabled={loading}
-              className="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => {
+                if(confirm("Are you sure you want to logout?")) {
+                    onLogout();
+                }
+              }}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-all group ${
+                darkMode 
+                  ? "bg-red-900/10 border-red-900/30 text-red-400 hover:bg-red-900/20 hover:border-red-900/50" 
+                  : "bg-red-50 border-red-100 text-red-600 hover:bg-red-100"
+              }`}
             >
-              Save
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-md ${darkMode ? "bg-red-900/20" : "bg-white shadow-sm"}`}>
+                  <LogOut size={18} />
+                </div>
+                <span className="text-sm font-semibold">Log Out</span>
+              </div>
             </button>
           </div>
 
+          {/* MAIN SAVE BUTTON */}
           <button
-            onClick={handleChangePassword}
+            onClick={handleSaveProfile}
             disabled={loading}
-            className="mt-3 w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white"
+            className="mt-6 w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
           >
-            Change Password
+            {loading ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
+            Save Changes
           </button>
+
+          {/* NESTED MODAL FOR PASSWORD */}
+          <ChangePasswordModal 
+            open={isPasswordModalOpen} 
+            onClose={() => setIsPasswordModalOpen(false)} 
+            darkMode={darkMode}
+          />
         </div>
       </div>
     </>
