@@ -9,11 +9,26 @@ export async function POST(request: NextRequest) {
   try {
     // 1. Auth & Validation
     const authHeader = request.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) return NextResponse.json({ success: false }, { status: 401 });
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json({ success: false, message: "Authentication required" }, { status: 401 });
+    }
     
     const token = authHeader.substring(7);
-    const decoded = auth.verifyToken(token).payload;
-    const userId = typeof decoded.userId === 'string' ? parseInt(decoded.userId) : decoded.userId;
+    let decoded;
+    try {
+        decoded = auth.verifyToken(token).payload;
+    } catch (e) {
+        return NextResponse.json({ success: false, message: "Invalid token" }, { status: 401 });
+    }
+    
+    // --- PERBAIKAN DI SINI ---
+    // Validasi eksplisit agar TypeScript tahu 'decoded' tidak undefined
+    if (!decoded || !decoded.userId) {
+        return NextResponse.json({ success: false, message: "Invalid token payload" }, { status: 401 });
+    }
+
+    // Konversi userId aman dilakukan karena kita sudah cek di atas
+    const userId = typeof decoded.userId === 'string' ? parseInt(decoded.userId, 10) : decoded.userId;
 
     // 2. Parse Body
     const { electionId, voterIds } = await request.json();
@@ -31,22 +46,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Election not found or unauthorized" }, { status: 404 });
     }
 
-    // 4. Lakukan Assign (Insert ke UserElectionParticipation)
-    // Kita gunakan createMany (jika DB support) atau loop.
-    // Kita perlu handle duplikat (skipDuplicates: true) agar tidak error jika sudah di-assign
-    
-    // Catatan: Pastikan schema prisma Anda memiliki model UserElectionParticipation
-    const result = await prisma.userElectionParticipation.createMany({
-      data: voterIds.map((vid: number) => ({
-        electionId: electionId,
-        userId: vid,
-        // votedAt biarkan null (default)
-      })),
-      skipDuplicates: true, 
+    // 4. FILTER LOGIC (Pengganti skipDuplicates untuk SQLite)
+    // Cari user yang SUDAH ada di election ini dari daftar voterIds yang dikirim
+    const existingParticipations = await prisma.userElectionParticipation.findMany({
+        where: {
+            electionId: electionId,
+            userId: { in: voterIds }
+        },
+        select: { userId: true }
     });
 
-    // 5. Update statistik total registered voters
-    // Hitung total partisipan sekarang
+    // Buat Set dari ID yang sudah ada agar pencarian cepat
+    const existingUserIds = new Set(existingParticipations.map(p => p.userId));
+
+    // Filter voterIds: Ambil hanya yang BELUM ada di database
+    const newVoterIds = voterIds.filter((id: number) => !existingUserIds.has(id));
+
+    let count = 0;
+
+    // 5. Lakukan Insert hanya jika ada data baru
+    if (newVoterIds.length > 0) {
+        const result = await prisma.userElectionParticipation.createMany({
+            data: newVoterIds.map((vid: number) => ({
+                electionId: electionId,
+                userId: vid,
+                // votedAt biarkan null (default)
+            })),
+        });
+        count = result.count;
+    }
+
+    // 6. Update statistik total registered voters
+    // Hitung total partisipan real-time
     const totalParticipants = await prisma.userElectionParticipation.count({
         where: { electionId: electionId }
     });
@@ -57,22 +88,32 @@ export async function POST(request: NextRequest) {
     });
 
     // Audit Log
-    await AuditService.createAuditLog(
-        userId, "UPDATE", "ELECTION_VOTERS", electionId, 
-        `Assigned ${result.count} voters to election ${election.title}`,
-        request.headers.get("x-forwarded-for") || "unknown",
-        request.headers.get("user-agent") || "unknown"
-    );
+    if (count > 0) {
+        try {
+            await AuditService.createAuditLog(
+                userId, "UPDATE", "ELECTION_VOTERS", electionId, 
+                `Assigned ${count} new voters to election ${election.title}`,
+                request.headers.get("x-forwarded-for") || "unknown",
+                request.headers.get("user-agent") || "unknown"
+            );
+        } catch (auditError) {
+            console.error("Audit log failed", auditError);
+        }
+    }
 
     return NextResponse.json({ 
       success: true, 
-      message: `Successfully assigned ${result.count} voters`,
-      count: result.count
+      message: count > 0 ? `Successfully assigned ${count} voters` : "All selected voters are already assigned",
+      count: count
     });
 
   } catch (error) {
     console.error("Assign error:", error);
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ 
+        success: false, 
+        message: "Internal server error",
+        error: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : undefined 
+    }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }

@@ -15,13 +15,15 @@ const prisma = new PrismaClient();
 // Validation schema for invitation response
 const invitationResponseSchema = z.object({
   participationId: z.number().int().positive("Participation ID must be a positive integer"),
-  // FIX: Gunakan properti 'message' (atau 'invalid_type_error' jika didukung) 
-  // karena 'errorMap' tidak dikenali oleh overload tipe ini.
   action: z.enum(["accept", "decline"], {
-    message: "Action must be either 'accept' or 'decline'",
+    errorMap: () => ({ message: "Action must be either 'accept' or 'decline'" }),
   }),
 });
 
+/**
+ * POST /api/voter/invitations
+ * Respond to an election invitation (accept or decline)
+ */
 export async function POST(request: NextRequest) {
   try {
     // Get token from cookie or header
@@ -82,9 +84,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // FIX 1: Handle Case Sensitivity for Role (VOTER vs voter)
-    const userRole = (user.role as string).toLowerCase();
-    if (userRole !== "voter") {
+    if (user.role !== "voter") {
       return NextResponse.json(
         { success: false, message: "Voter access required" },
         { status: 403 }
@@ -137,10 +137,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // FIX 2: Check against Uppercase "PENDING"
-    // Prisma Enums are returned as "PENDING", so checking against "pending" would fail
-    // and make the system think you already responded.
-    if (participation.inviteStatus !== "PENDING") {
+    // Check if already responded
+    if (participation.inviteStatus !== "pending") {
       return NextResponse.json(
         { 
           success: false, 
@@ -150,20 +148,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // FIX 3: Use Uppercase Enum Values for Update
-    const inviteStatus = action === "accept" ? "ACCEPTED" : "DECLINED";
-    
+    // Update participation status
+    const inviteStatus = action === "accept" ? "accepted" : "declined";
     const updatedParticipation = await prisma.userElectionParticipation.update({
       where: { id: participationId },
       data: {
-        // //@ts-ignore - Prisma types might complain about string vs Enum, but string literal works
-        inviteStatus: inviteStatus, 
+        inviteStatus,
         respondedAt: new Date(),
       },
     });
 
-    // NOTE: We removed the duplicate insert into electionVoter table
-    // relying on UserElectionParticipation status being 'ACCEPTED' for voting eligibility.
+    // If accepted, ensure voter is registered in election_voters table
+    if (action === "accept") {
+      // Check if voter registration already exists
+      const existingVoterReg = await prisma.electionVoter.findFirst({
+        where: {
+          electionId: participation.electionId,
+          email: user.email,
+        },
+      });
+
+      if (!existingVoterReg) {
+        // Create voter registration
+        await prisma.electionVoter.create({
+          data: {
+            electionId: participation.electionId,
+            name: user.fullName || user.username,
+            email: user.email,
+            username: user.username,
+          },
+        });
+
+        log.info("Voter registered for election after accepting invitation", "VOTER_INVITATION", {
+          userId,
+          electionId: participation.electionId,
+          participationId,
+        });
+      }
+    }
 
     // Create audit log
     await AuditService.createAuditLog(

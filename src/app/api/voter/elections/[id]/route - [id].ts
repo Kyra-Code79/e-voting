@@ -4,15 +4,11 @@ import { auth } from "@/lib/auth/jwt";
 
 const prisma = new PrismaClient();
 
-// FIX: Change the type definition to use Promise
 export async function GET(
   request: NextRequest,
-  props: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    // FIX: Await the params before accessing id
-    const params = await props.params;
-
     const authHeader = request.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 });
@@ -32,7 +28,7 @@ export async function GET(
       where: { id: electionId },
       include: {
         organization: { select: { username: true } },
-        candidates: { orderBy: { id: 'asc' } }
+        candidates: { orderBy: { id: 'asc' } } // Penting: Ambil kandidat
       }
     });
 

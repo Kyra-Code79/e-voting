@@ -54,8 +54,26 @@ export async function PUT(request: NextRequest) {
     const userId = parseInt(tokenResult.payload.userId);
 
     // Get user
+    const result = auth.verifyToken(token);
+    
+    if (!result.isValid || !result.payload?.userId) {
+      return NextResponse.json({ success: false, message: "Invalid token" }, { status: 401 });
+    }
+
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: parseInt(result.payload.userId) },
+      // IMPORTANT: Exclude passwords/private keys
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        fullName: true,
+        profileImage: true,
+        role: true,
+        status: true,
+        emailVerified: true,
+        createdAt: true
+      }
     });
 
     if (!user) {

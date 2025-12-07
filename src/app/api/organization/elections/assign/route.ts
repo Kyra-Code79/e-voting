@@ -21,13 +21,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, message: "Invalid token" }, { status: 401 });
     }
     
-    // --- PERBAIKAN DI SINI ---
-    // Validasi eksplisit agar TypeScript tahu 'decoded' tidak undefined
     if (!decoded || !decoded.userId) {
         return NextResponse.json({ success: false, message: "Invalid token payload" }, { status: 401 });
     }
 
-    // Konversi userId aman dilakukan karena kita sudah cek di atas
     const userId = typeof decoded.userId === 'string' ? parseInt(decoded.userId, 10) : decoded.userId;
 
     // 2. Parse Body
@@ -46,8 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Election not found or unauthorized" }, { status: 404 });
     }
 
-    // 4. FILTER LOGIC (Pengganti skipDuplicates untuk SQLite)
-    // Cari user yang SUDAH ada di election ini dari daftar voterIds yang dikirim
+    // 4. FILTER LOGIC (Mencegah Duplikasi)
     const existingParticipations = await prisma.userElectionParticipation.findMany({
         where: {
             electionId: electionId,
@@ -56,28 +52,27 @@ export async function POST(request: NextRequest) {
         select: { userId: true }
     });
 
-    // Buat Set dari ID yang sudah ada agar pencarian cepat
     const existingUserIds = new Set(existingParticipations.map(p => p.userId));
-
-    // Filter voterIds: Ambil hanya yang BELUM ada di database
     const newVoterIds = voterIds.filter((id: number) => !existingUserIds.has(id));
 
     let count = 0;
 
-    // 5. Lakukan Insert hanya jika ada data baru
+    // 5. INSERT LOGIC (FIXED)
     if (newVoterIds.length > 0) {
         const result = await prisma.userElectionParticipation.createMany({
             data: newVoterIds.map((vid: number) => ({
                 electionId: electionId,
                 userId: vid,
-                // votedAt biarkan null (default)
+                inviteStatus: 'PENDING', // PERBAIKAN: Gunakan HURUF BESAR sesuai Enum Prisma
+                invitedAt: new Date(),   
+                hasVoted: false,
+                // Pastikan properti lain sesuai schema Anda
             })),
         });
         count = result.count;
     }
 
-    // 6. Update statistik total registered voters
-    // Hitung total partisipan real-time
+    // 6. Update statistics
     const totalParticipants = await prisma.userElectionParticipation.count({
         where: { electionId: electionId }
     });

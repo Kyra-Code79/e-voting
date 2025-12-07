@@ -54,7 +54,7 @@ interface UserElectionParticipation {
   id: number;
   userId: number;
   electionId: number;
-  inviteStatus: "pending" | "accepted" | "declined";
+  inviteStatus: "PENDING" | "ACCEPTED" | "DECLINED"; 
   hasVoted: boolean;
   invitedAt: string;
   respondedAt?: string;
