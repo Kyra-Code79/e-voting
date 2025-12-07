@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/database/client";
+import { PrismaClient } from "@prisma/client";
 import { auth } from "@/lib/auth/jwt";
 import { AuditService } from "@/lib/database/services/audit.service";
+
+const prisma = new PrismaClient();
 
 interface ElectionStatistic {
   electionId: number;

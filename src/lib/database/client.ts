@@ -1,29 +1,33 @@
 import { PrismaClient } from "@prisma/client";
 
-// Prevent multiple instances of Prisma Client in development
+// 1. Prevent multiple instances of Prisma Client in development (Singleton Pattern)
 declare global {
   var __prisma: PrismaClient | undefined;
 }
 
-// Database client configuration
+// 2. Database client configuration
 const createPrismaClient = () => {
   return new PrismaClient({
     log:
       process.env.NODE_ENV === "development"
         ? ["query", "error", "warn"]
         : ["error"],
-    errorFormat: "pretty",
+    // errorFormat: "pretty", // Optional: bisa di-uncomment jika ingin log error yang lebih cantik di terminal
   });
 };
 
-// Use global variable in development to prevent hot reload issues
+// 3. Use global variable in development to prevent hot reload issues
 const prisma = globalThis.__prisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV === "development") {
   globalThis.__prisma = prisma;
 }
 
-// Database connection helper
+// ==============================================================================
+// HELPER FUNCTIONS (FITUR TAMBAHAN ANDA)
+// ==============================================================================
+
+// 4. Database connection helper
 export const connectToDatabase = async () => {
   try {
     await prisma.$connect();
@@ -35,7 +39,7 @@ export const connectToDatabase = async () => {
   }
 };
 
-// Database disconnection helper
+// 5. Database disconnection helper
 export const disconnectFromDatabase = async () => {
   try {
     await prisma.$disconnect();
@@ -45,7 +49,7 @@ export const disconnectFromDatabase = async () => {
   }
 };
 
-// Health check function
+// 6. Health check function
 export const checkDatabaseHealth = async (): Promise<boolean> => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -56,7 +60,7 @@ export const checkDatabaseHealth = async (): Promise<boolean> => {
   }
 };
 
-// Transaction helper
+// 7. Transaction helper
 export const executeTransaction = async <T>(
   fn: (
     prisma: Omit<
@@ -68,12 +72,14 @@ export const executeTransaction = async <T>(
   return await prisma.$transaction(fn);
 };
 
-// Database cleanup for tests
+// 8. Database cleanup for tests
 export const cleanupDatabase = async () => {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("Database cleanup is only allowed in test environment");
   }
 
+  // Khusus SQLite, syntax cleanup mungkin berbeda dengan PostgreSQL/MySQL
+  // Pastikan ini sesuai dengan database yang Anda pakai (SQLite di schema Anda)
   const tablenames = await prisma.$queryRaw<
     Array<{ name: string }>
   >`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_prisma_migrations';`;
@@ -86,4 +92,5 @@ export const cleanupDatabase = async () => {
   }
 };
 
+// 9. Export Default untuk digunakan di API Routes
 export default prisma;
