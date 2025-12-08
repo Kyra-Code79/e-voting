@@ -13,7 +13,7 @@ interface User {
   studentId?: string;
   username: string;
   email: string;
-  fullName: string | null; 
+  fullName: string | null;
   profileImage: string | null;
   role: "admin" | "organization" | "voter";
   status: "active" | "inactive";
@@ -33,7 +33,7 @@ interface Election {
   id: number;
   title: string;
   description: string;
-  status: "draft" | "active" | "ended";
+  status: "DRAFT" | "ACTIVE" | "ENDED";
   startDate: string;
   endDate: string;
   organization: {
@@ -45,14 +45,14 @@ interface Election {
     votes: number;
     voters: number;
   };
-  candidates?: Candidate[]; 
+  candidates?: Candidate[];
 }
 
 interface UserElectionParticipation {
   id: number;
   userId: number;
   electionId: number;
-  inviteStatus: "PENDING" | "ACCEPTED" | "DECLINED"; 
+  inviteStatus: "PENDING" | "ACCEPTED" | "DECLINED";
   hasVoted: boolean;
   invitedAt: string;
   respondedAt?: string;
@@ -83,6 +83,7 @@ interface VotingHistoryEntry {
 interface VoterDashboardData {
   participations: UserElectionParticipation[];
   activeElections: Election[];
+  upcomingElections: Election[];
   votingHistory: UserElectionParticipation[];
   pendingInvitations: UserElectionParticipation[];
   statistics: {
@@ -93,7 +94,7 @@ interface VoterDashboardData {
   };
 }
 
-type TabKey = "overview" | "active" | "history" | "invitations";
+type TabKey = "overview" | "active" | "upcoming" | "history" | "invitations";
 
 // --- Component: Voting Modal ---
 
@@ -124,10 +125,10 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
   const loadCandidates = async (electionId: number) => {
     setIsLoadingCandidates(true);
     setError(null);
-    
+
     try {
       const token = localStorage.getItem("accessToken");
-      
+
       const response = await fetch(`/api/voter/elections/${electionId}`, {
         method: "GET",
         headers: {
@@ -141,7 +142,7 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
       }
 
       const json = await response.json();
-      
+
       if (json.success && json.data && json.data.candidates) {
         setCandidates(json.data.candidates);
       } else {
@@ -165,7 +166,7 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
 
     try {
       const token = localStorage.getItem("accessToken");
-      
+
       const response = await fetch("/api/voter/vote", {
         method: "POST",
         headers: {
@@ -186,7 +187,7 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
 
       onVoteSuccess();
       onClose();
-      
+
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Terjadi kesalahan sistem";
       setError(errorMessage);
@@ -205,13 +206,11 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl ${
-              darkMode ? "bg-neutral-900 border border-emerald-800" : "bg-white border border-gray-200"
-            }`}
+            className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl ${darkMode ? "bg-neutral-900 border border-emerald-800" : "bg-white border border-gray-200"
+              }`}
           >
-            <div className={`sticky top-0 z-10 flex justify-between items-center p-6 border-b ${
-              darkMode ? "bg-neutral-900/95 border-emerald-800" : "bg-white/95 border-gray-200"
-            }`}>
+            <div className={`sticky top-0 z-10 flex justify-between items-center p-6 border-b ${darkMode ? "bg-neutral-900/95 border-emerald-800" : "bg-white/95 border-gray-200"
+              }`}>
               <div>
                 <h2 className={`text-xl font-bold ${darkMode ? "text-emerald-400" : "text-emerald-700"}`}>
                   {election.title}
@@ -248,15 +247,14 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
                     <div
                       key={candidate.id}
                       onClick={() => setSelectedCandidate(candidate.id)}
-                      className={`relative cursor-pointer rounded-xl border-2 transition-all duration-200 overflow-hidden group flex flex-col ${
-                        selectedCandidate === candidate.id
-                          ? darkMode 
-                            ? "border-emerald-500 bg-emerald-900/20" 
-                            : "border-emerald-600 bg-emerald-50"
-                          : darkMode 
-                            ? "border-neutral-700 bg-neutral-800/50 hover:border-emerald-700" 
-                            : "border-gray-200 bg-white hover:border-emerald-400 hover:shadow-md"
-                      }`}
+                      className={`relative cursor-pointer rounded-xl border-2 transition-all duration-200 overflow-hidden group flex flex-col ${selectedCandidate === candidate.id
+                        ? darkMode
+                          ? "border-emerald-500 bg-emerald-900/20"
+                          : "border-emerald-600 bg-emerald-50"
+                        : darkMode
+                          ? "border-neutral-700 bg-neutral-800/50 hover:border-emerald-700"
+                          : "border-gray-200 bg-white hover:border-emerald-400 hover:shadow-md"
+                        }`}
                     >
                       {selectedCandidate === candidate.id && (
                         <div className="absolute top-3 right-3 bg-emerald-500 text-white rounded-full p-1 z-10">
@@ -266,9 +264,8 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
 
                       <div className="p-5 flex-grow">
                         <div className={`flex items-center gap-4 mb-4`}>
-                          <div className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xl font-bold ${
-                             darkMode ? "bg-neutral-700 text-emerald-400" : "bg-emerald-100 text-emerald-700"
-                          }`}>
+                          <div className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xl font-bold ${darkMode ? "bg-neutral-700 text-emerald-400" : "bg-emerald-100 text-emerald-700"
+                            }`}>
                             {index + 1}
                           </div>
                           <h3 className={`font-bold text-lg leading-tight ${darkMode ? "text-white" : "text-gray-900"}`}>
@@ -277,14 +274,14 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
                         </div>
 
                         <div className="space-y-3">
-                           <div>
-                             <h4 className={`text-xs uppercase font-semibold tracking-wider mb-2 ${darkMode ? "text-emerald-500" : "text-emerald-700"}`}>
-                               Deskripsi & Program Kerja
-                             </h4>
-                             <p className={`text-sm whitespace-pre-line ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
-                               {candidate.description}
-                             </p>
-                           </div>
+                          <div>
+                            <h4 className={`text-xs uppercase font-semibold tracking-wider mb-2 ${darkMode ? "text-emerald-500" : "text-emerald-700"}`}>
+                              Deskripsi & Program Kerja
+                            </h4>
+                            <p className={`text-sm whitespace-pre-line ${darkMode ? "text-gray-300" : "text-gray-600"}`}>
+                              {candidate.description}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -293,14 +290,12 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
               )}
             </div>
 
-            <div className={`sticky bottom-0 p-6 border-t flex justify-end items-center gap-3 ${
-              darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"
-            }`}>
+            <div className={`sticky bottom-0 p-6 border-t flex justify-end items-center gap-3 ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"
+              }`}>
               <button
                 onClick={onClose}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  darkMode ? "text-gray-300 hover:bg-neutral-800" : "text-gray-600 hover:bg-gray-100"
-                }`}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${darkMode ? "text-gray-300 hover:bg-neutral-800" : "text-gray-600 hover:bg-gray-100"
+                  }`}
                 disabled={isSubmitting}
               >
                 Batal
@@ -308,11 +303,10 @@ const VotingModal: React.FC<VotingModalProps> = ({ isOpen, onClose, election, da
               <button
                 onClick={handleVote}
                 disabled={!selectedCandidate || isSubmitting}
-                className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium text-white transition-all ${
-                  !selectedCandidate || isSubmitting
-                    ? "bg-gray-500 cursor-not-allowed opacity-50"
-                    : "bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-900/20"
-                }`}
+                className={`flex items-center gap-2 px-6 py-2 rounded-lg font-medium text-white transition-all ${!selectedCandidate || isSubmitting
+                  ? "bg-gray-500 cursor-not-allowed opacity-50"
+                  : "bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-900/20"
+                  }`}
               >
                 {isSubmitting ? (
                   <>
@@ -342,6 +336,7 @@ export default function VoterDashboard() {
   const [dashboardData, setDashboardData] = useState<VoterDashboardData>({
     participations: [],
     activeElections: [],
+    upcomingElections: [],
     votingHistory: [],
     pendingInvitations: [],
     statistics: {
@@ -355,7 +350,7 @@ export default function VoterDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(true);
-  
+
   // Modal States
   const [isVoteModalOpen, setIsVoteModalOpen] = useState(false);
   const [selectedElectionForVote, setSelectedElectionForVote] = useState<Election | null>(null);
@@ -420,10 +415,10 @@ export default function VoterDashboard() {
   };
 
   const refreshAllData = async () => {
-     await Promise.all([
-        loadDashboardData(),
-        loadVoteHistory()
-     ]);
+    await Promise.all([
+      loadDashboardData(),
+      loadVoteHistory()
+    ]);
   };
 
   useEffect(() => {
@@ -493,15 +488,15 @@ export default function VoterDashboard() {
   };
 
   const handleVoteSuccess = () => {
-      refreshAllData();
-      alert("Vote berhasil direkam di blockchain!");
+    refreshAllData();
+    alert("Vote berhasil direkam di blockchain!");
   };
 
   const isElectionActive = (election: Election) => {
     const now = new Date();
     const start = new Date(election.startDate);
     const end = new Date(election.endDate);
-    return election.status === "active" && now >= start && now <= end;
+    return election.status === "ACTIVE" && now >= start && now <= end;
   };
 
   const formatTimeRemaining = (endDate: string) => {
@@ -516,9 +511,9 @@ export default function VoterDashboard() {
   };
 
   const hasUserVoted = (electionId: number) => {
-      const inHistory = voteHistory.some(v => v.electionId === electionId);
-      const inParticipation = dashboardData.participations.some(p => p.electionId === electionId && p.hasVoted);
-      return inHistory || inParticipation;
+    const inHistory = voteHistory.some(v => v.electionId === electionId);
+    const inParticipation = dashboardData.participations.some(p => p.electionId === electionId && p.hasVoted);
+    return inHistory || inParticipation;
   };
 
   if (isLoading) {
@@ -531,7 +526,7 @@ export default function VoterDashboard() {
       </div>
     );
   }
-  
+
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -544,19 +539,19 @@ export default function VoterDashboard() {
   // --- RENDER UTAMA ---
   return (
     <div className={
-      darkMode 
-        ? "min-h-screen flex flex-col bg-gradient-to-br from-black via-neutral-900 to-emerald-950 text-white" 
+      darkMode
+        ? "min-h-screen flex flex-col bg-gradient-to-br from-black via-neutral-900 to-emerald-950 text-white"
         : "min-h-screen flex flex-col bg-gray-50 text-gray-900" // Light mode menggunakan gray-50 agar card putih lebih kontras
     }>
 
       <header className={
-        darkMode 
-          ? "bg-neutral-950/30 border-b border-emerald-800/30 sticky top-0 z-40 backdrop-blur-md" 
+        darkMode
+          ? "bg-neutral-950/30 border-b border-emerald-800/30 sticky top-0 z-40 backdrop-blur-md"
           : "bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm"
       }>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            
+
             {/* Kiri: Judul */}
             <div>
               <h1 className={darkMode ? "text-xl font-bold text-emerald-300" : "text-xl font-bold text-emerald-700"}>
@@ -569,15 +564,14 @@ export default function VoterDashboard() {
 
             {/* Kanan: Theme Toggle & Profile Button */}
             <div className="flex items-center space-x-2 sm:space-x-3">
-              
+
               {/* Theme Toggle */}
               <button
                 onClick={() => setDarkMode((s) => !s)}
-                className={`p-2 rounded-full transition-all border ${
-                  darkMode 
-                    ? "bg-neutral-900/50 border-emerald-800/50 text-emerald-300 hover:bg-neutral-800" 
-                    : "bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100 hover:border-gray-400"
-                }`}
+                className={`p-2 rounded-full transition-all border ${darkMode
+                  ? "bg-neutral-900/50 border-emerald-800/50 text-emerald-300 hover:bg-neutral-800"
+                  : "bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100 hover:border-gray-400"
+                  }`}
                 title="Toggle Theme"
               >
                 {darkMode ? <Sun size={20} /> : <Moon size={20} />}
@@ -586,21 +580,19 @@ export default function VoterDashboard() {
               {/* Profile Button */}
               <button
                 onClick={() => setSettingsOpen(true)}
-                className={`flex items-center gap-2 sm:gap-3 pl-1 pr-3 py-1 rounded-full border transition-all group max-w-[150px] sm:max-w-none ${
-                  darkMode
-                    ? "border-emerald-800/50 bg-neutral-900/50 hover:bg-neutral-800 hover:border-emerald-700"
-                    : "border-gray-300 bg-white hover:bg-gray-50 hover:border-emerald-500 shadow-sm"
-                }`}
+                className={`flex items-center gap-2 sm:gap-3 pl-1 pr-3 py-1 rounded-full border transition-all group max-w-[150px] sm:max-w-none ${darkMode
+                  ? "border-emerald-800/50 bg-neutral-900/50 hover:bg-neutral-800 hover:border-emerald-700"
+                  : "border-gray-300 bg-white hover:bg-gray-50 hover:border-emerald-500 shadow-sm"
+                  }`}
               >
                 {/* Avatar */}
-                <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden border ${
-                  darkMode ? "bg-emerald-900 border-emerald-700 text-emerald-300" : "bg-emerald-100 border-emerald-200 text-emerald-700"
-                }`}>
+                <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center overflow-hidden border ${darkMode ? "bg-emerald-900 border-emerald-700 text-emerald-300" : "bg-emerald-100 border-emerald-200 text-emerald-700"
+                  }`}>
                   {userData?.profileImage || user?.profileImage ? (
-                    <img 
-                      src={userData?.profileImage || user?.profileImage || ""} 
-                      alt="Profile" 
-                      className="w-full h-full object-cover" 
+                    <img
+                      src={userData?.profileImage || user?.profileImage || ""}
+                      alt="Profile"
+                      className="w-full h-full object-cover"
                     />
                   ) : (
                     <span className="text-xs font-bold">
@@ -630,30 +622,30 @@ export default function VoterDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* SCROLLABLE CONTAINER: flex-nowrap + overflow-x-auto */}
           <div className="w-full overflow-x-auto">
-             <div className="flex space-x-6 min-w-max pb-1">
+            <div className="flex space-x-6 min-w-max pb-1">
               {[
                 { key: "overview", label: "Overview" },
                 { key: "active", label: "Active Elections" },
+                { key: "upcoming", label: "Upcoming" },
                 { key: "invitations", label: `Invitations (${dashboardData.statistics.pendingInvitations})` },
                 { key: "history", label: "Voting History" },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key as TabKey)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors flex-shrink-0 ${
-                    activeTab === tab.key
-                      ? darkMode 
-                        ? "border-emerald-400 text-emerald-300" 
-                        : "border-emerald-600 text-emerald-700" 
-                      : darkMode
-                        ? "border-transparent text-gray-500 hover:text-gray-300"
-                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
-                  }`}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-colors flex-shrink-0 ${activeTab === tab.key
+                    ? darkMode
+                      ? "border-emerald-400 text-emerald-300"
+                      : "border-emerald-600 text-emerald-700"
+                    : darkMode
+                      ? "border-transparent text-gray-500 hover:text-gray-300"
+                      : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}
                 >
                   {tab.label}
                 </button>
               ))}
-             </div>
+            </div>
           </div>
         </div>
       </nav>
@@ -669,14 +661,14 @@ export default function VoterDashboard() {
         {activeTab === "overview" && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-               {/* Stat Card 1 */}
-               <div className={darkMode 
-                 ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors" 
-                 : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
-               }>
+              {/* Stat Card 1 */}
+              <div className={darkMode
+                ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors"
+                : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
+              }>
                 <div className="flex items-center">
                   <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center text-white">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   </div>
                   <div className="ml-4">
                     <dt className={`text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>Total Invitations</dt>
@@ -684,15 +676,15 @@ export default function VoterDashboard() {
                   </div>
                 </div>
               </div>
-              
+
               {/* Stat Card 2 */}
-              <div className={darkMode 
-                 ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors" 
-                 : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
+              <div className={darkMode
+                ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors"
+                : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
               }>
                 <div className="flex items-center">
                   <div className="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center text-white">
-                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                   </div>
                   <div className="ml-4">
                     <dt className={`text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>Votes Cast</dt>
@@ -702,13 +694,13 @@ export default function VoterDashboard() {
               </div>
 
               {/* Stat Card 3 */}
-               <div className={darkMode 
-                 ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors" 
-                 : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
-               }>
+              <div className={darkMode
+                ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors"
+                : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
+              }>
                 <div className="flex items-center">
                   <div className="w-8 h-8 bg-yellow-500 rounded-md flex items-center justify-center text-white">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
                   </div>
                   <div className="ml-4">
                     <dt className={`text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>Pending</dt>
@@ -717,14 +709,14 @@ export default function VoterDashboard() {
                 </div>
               </div>
 
-               {/* Stat Card 4 */}
-               <div className={darkMode 
-                 ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors" 
-                 : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
-               }>
+              {/* Stat Card 4 */}
+              <div className={darkMode
+                ? "p-5 rounded-lg bg-neutral-900 border border-emerald-800 shadow hover:border-emerald-600 transition-colors"
+                : "p-5 rounded-lg bg-white border border-gray-200 shadow-sm"
+              }>
                 <div className="flex items-center">
                   <div className="w-8 h-8 bg-purple-500 rounded-md flex items-center justify-center text-white">
-                       <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
                   </div>
                   <div className="ml-4">
                     <dt className={`text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>Participation Rate</dt>
@@ -739,53 +731,53 @@ export default function VoterDashboard() {
                 <h3 className={darkMode ? "text-lg font-medium text-emerald-300" : "text-lg font-medium text-gray-900"}>Active Elections</h3>
               </div>
               <div className="p-6">
-                 {dashboardData.activeElections.length === 0 ? (
+                {dashboardData.activeElections.length === 0 ? (
                   <p className="text-center opacity-60 py-4">No active elections at the moment.</p>
-                 ) : (
-                   <div className="space-y-4">
-                     {dashboardData.activeElections.slice(0, 3).map((election) => {
-                       const voted = hasUserVoted(election.id);
-                       return (
-                         <div key={election.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-lg border ${darkMode ? "border-emerald-800/50 bg-black/20" : "border-gray-200 bg-gray-50"}`}>
-                           <div>
-                             <h4 className={`font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>{election.title}</h4>
-                             <div className={`flex items-center gap-3 mt-1 text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>
-                               <span>By {election.organization.username}</span>
-                               <span>•</span>
-                               <span className={isElectionActive(election) ? "text-green-500" : "text-gray-500"}>
-                                 {isElectionActive(election) ? formatTimeRemaining(election.endDate) : "Ended"}
-                               </span>
-                             </div>
-                           </div>
-                           <div className="mt-3 sm:mt-0">
-                              {voted ? (
-                                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  <CheckCircle size={12} className="mr-1"/> Voted
-                                </span>
-                              ) : (
-                                isElectionActive(election) && (
-                                  <button 
-                                    onClick={() => handleOpenVoteModal(election)}
-                                    className="px-4 py-2 text-xs font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
-                                  >
-                                    Vote Now
-                                  </button>
-                                )
-                              )}
-                           </div>
-                         </div>
-                       );
-                     })}
-                   </div>
-                 )}
-                 {dashboardData.activeElections.length > 0 && (
-                   <button 
-                     onClick={() => setActiveTab("active")}
-                     className={`mt-4 w-full py-2 text-sm font-medium rounded border transition-colors ${darkMode ? "border-emerald-800 text-emerald-400 hover:bg-emerald-900/20" : "border-gray-300 text-gray-700 hover:bg-gray-50 bg-white"}`}
-                   >
-                     View All Active Elections
-                   </button>
-                 )}
+                ) : (
+                  <div className="space-y-4">
+                    {dashboardData.activeElections.slice(0, 3).map((election) => {
+                      const voted = hasUserVoted(election.id);
+                      return (
+                        <div key={election.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-lg border ${darkMode ? "border-emerald-800/50 bg-black/20" : "border-gray-200 bg-gray-50"}`}>
+                          <div>
+                            <h4 className={`font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>{election.title}</h4>
+                            <div className={`flex items-center gap-3 mt-1 text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>
+                              <span>By {election.organization.username}</span>
+                              <span>•</span>
+                              <span className={isElectionActive(election) ? "text-green-500" : "text-gray-500"}>
+                                {isElectionActive(election) ? formatTimeRemaining(election.endDate) : "Ended"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-3 sm:mt-0">
+                            {voted ? (
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                <CheckCircle size={12} className="mr-1" /> Voted
+                              </span>
+                            ) : (
+                              isElectionActive(election) && (
+                                <button
+                                  onClick={() => handleOpenVoteModal(election)}
+                                  className="px-4 py-2 text-xs font-medium rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                                >
+                                  Vote Now
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {dashboardData.activeElections.length > 0 && (
+                  <button
+                    onClick={() => setActiveTab("active")}
+                    className={`mt-4 w-full py-2 text-sm font-medium rounded border transition-colors ${darkMode ? "border-emerald-800 text-emerald-400 hover:bg-emerald-900/20" : "border-gray-300 text-gray-700 hover:bg-gray-50 bg-white"}`}
+                  >
+                    View All Active Elections
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -794,141 +786,114 @@ export default function VoterDashboard() {
         {/* --- TAB: ACTIVE ELECTIONS --- */}
         {activeTab === "active" && (
           <div className="grid gap-6">
-             {dashboardData.activeElections.length === 0 ? (
-               <div className={`text-center py-12 rounded-lg border border-dashed ${darkMode ? "border-gray-700 text-gray-400" : "border-gray-300 text-gray-500"}`}>
-                 No active elections currently available.
-               </div>
-             ) : (
-               dashboardData.activeElections.map(election => {
-                 const voted = hasUserVoted(election.id);
-                 return (
-                   <div key={election.id} className={`rounded-xl border overflow-hidden shadow-sm transition-all ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
-                      <div className="p-6">
-                        <div className="flex flex-col md:flex-row justify-between items-start">
-                           <div className="flex-1 pr-4">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>{election.title}</h3>
-                                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/20 text-emerald-500 border border-emerald-500/30">
-                                  ACTIVE
-                                </span>
-                              </div>
-                              <p className={`mb-4 ${darkMode ? "text-gray-400" : "text-gray-600"}`}>{election.description}</p>
-                              
-                              <div className={`grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm ${darkMode ? "opacity-80" : "text-gray-600"}`}>
-                                <div>
-                                  <span className="block text-xs uppercase tracking-wider opacity-70">Organization</span>
-                                  <span className={`font-medium ${darkMode ? "" : "text-gray-900"}`}>{election.organization.username}</span>
-                                </div>
-                                <div>
-                                  <span className="block text-xs uppercase tracking-wider opacity-70">Votes</span>
-                                  <span className={`font-medium ${darkMode ? "" : "text-gray-900"}`}>{election._count.votes}</span>
-                                </div>
-                                <div>
-                                  <span className="block text-xs uppercase tracking-wider opacity-70">Ends In</span>
-                                  <span className="font-medium text-emerald-500">{formatTimeRemaining(election.endDate)}</span>
-                                </div>
-                              </div>
-                           </div>
+            {dashboardData.activeElections.length === 0 ? (
+              <div className={`text-center py-12 rounded-lg border border-dashed ${darkMode ? "border-gray-700 text-gray-400" : "border-gray-300 text-gray-500"}`}>
+                No active elections currently available.
+              </div>
+            ) : (
+              dashboardData.activeElections.map(election => {
+                const voted = hasUserVoted(election.id);
+                return (
+                  <div key={election.id} className={`rounded-xl border overflow-hidden shadow-sm transition-all ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
+                    <div className="p-6">
+                      <div className="flex flex-col md:flex-row justify-between items-start">
+                        <div className="flex-1 pr-4">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>{election.title}</h3>
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/20 text-emerald-500 border border-emerald-500/30">
+                              ACTIVE
+                            </span>
+                          </div>
+                          <p className={`mb-4 ${darkMode ? "text-gray-400" : "text-gray-600"}`}>{election.description}</p>
 
-                           <div className="flex flex-col items-end justify-center min-w-[120px] mt-4 md:mt-0">
-                              {voted ? (
-                                <div className="flex flex-col items-end text-green-500">
-                                   <CheckCircle size={32} className="mb-2"/>
-                                   <span className="font-bold text-sm">Voted</span>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => handleOpenVoteModal(election)}
-                                  className="w-full py-3 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-lg shadow-emerald-900/30 transition-transform hover:scale-105 flex items-center justify-center gap-2"
-                                >
-                                  <Vote size={18} />
-                                  Vote Now
-                                </button>
-                              )}
-                           </div>
+                          <div className={`grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm ${darkMode ? "opacity-80" : "text-gray-600"}`}>
+                            <div>
+                              <span className="block text-xs uppercase tracking-wider opacity-70">Organization</span>
+                              <span className={`font-medium ${darkMode ? "" : "text-gray-900"}`}>{election.organization.username}</span>
+                            </div>
+                            <div>
+                              <span className="block text-xs uppercase tracking-wider opacity-70">Votes</span>
+                              <span className={`font-medium ${darkMode ? "" : "text-gray-900"}`}>{election._count.votes}</span>
+                            </div>
+                            <div>
+                              <span className="block text-xs uppercase tracking-wider opacity-70">Ends In</span>
+                              <span className="font-medium text-emerald-500">{formatTimeRemaining(election.endDate)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end justify-center min-w-[120px] mt-4 md:mt-0">
+                          {voted ? (
+                            <div className="flex flex-col items-end text-green-500">
+                              <CheckCircle size={32} className="mb-2" />
+                              <span className="font-bold text-sm">Voted</span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenVoteModal(election)}
+                              className="w-full py-3 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-lg shadow-emerald-900/30 transition-transform hover:scale-105 flex items-center justify-center gap-2"
+                            >
+                              <Vote size={20} />
+                              Vote Now
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-800">
-                        <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, (election._count.votes / Math.max(1, election._count.voters)) * 100)}%` }}></div>
-                      </div>
-                   </div>
-                 );
-               })
-             )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
 
-        {/* --- TAB: INVITATIONS --- */}
-        {activeTab === "invitations" && (
-           <div className={`rounded-lg shadow overflow-hidden ${darkMode ? "bg-neutral-900 border border-emerald-800" : "bg-white border border-gray-200"}`}>
-             <div className={`p-6 border-b ${darkMode ? "border-gray-200/10" : "border-gray-200"}`}>
-                <h3 className={`text-lg font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>Pending Invitations</h3>
-             </div>
-             <div className="p-6 space-y-4">
-                {dashboardData.pendingInvitations.length === 0 ? (
-                  <div className={`text-center py-8 ${darkMode ? "opacity-60" : "text-gray-500"}`}>No pending invitations.</div>
-                ) : (
-                  dashboardData.pendingInvitations.map(invite => (
-                    <div key={invite.id} className={`flex flex-col sm:flex-row justify-between items-center p-4 rounded-lg border ${darkMode ? "border-gray-700 bg-gray-800/50" : "border-gray-200 bg-gray-50"}`}>
-                       <div className="mb-4 sm:mb-0 text-center sm:text-left">
-                         <h4 className={`font-medium text-lg ${darkMode ? "text-white" : "text-gray-900"}`}>{invite.election?.title}</h4>
-                         <p className={`text-sm ${darkMode ? "opacity-70" : "text-gray-600"}`}>{invite.election?.description}</p>
-                         <div className={`mt-1 text-xs ${darkMode ? "opacity-50" : "text-gray-400"}`}>Invited on {new Date(invite.invitedAt).toLocaleDateString()}</div>
-                       </div>
-                       <div className="flex gap-3">
-                         <button onClick={() => handleInvitationResponse(invite.id, "accept")} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700 text-white text-sm font-medium">Accept</button>
-                         <button onClick={() => handleInvitationResponse(invite.id, "decline")} className="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-medium">Decline</button>
-                       </div>
-                    </div>
-                  ))
-                )}
-             </div>
-           </div>
-        )}
-
-        {/* --- TAB: HISTORY --- */}
-        {activeTab === "history" && (
-          <div className="space-y-4">
-            {voteHistory.length === 0 ? (
+        {/* --- TAB: UPCOMING ELECTIONS --- */}
+        {activeTab === "upcoming" && (
+          <div className="grid gap-6">
+            {dashboardData.upcomingElections?.length === 0 ? (
               <div className={`text-center py-12 rounded-lg border border-dashed ${darkMode ? "border-gray-700 text-gray-400" : "border-gray-300 text-gray-500"}`}>
-                 You haven&apos;t voted in any elections yet.
-               </div>
+                No upcoming elections currently available.
+              </div>
             ) : (
-              voteHistory.map((vote) => (
-                <div key={vote.id} className={`p-6 rounded-xl border shadow-sm ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
-                  <div className="flex flex-col md:flex-row justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                         <h4 className={`text-lg font-bold ${darkMode ? "text-emerald-500" : "text-emerald-700"}`}>{vote.election.title}</h4>
-                         <span className={`px-2 py-0.5 text-xs rounded-full ${darkMode ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-600"}`}>
-                           {vote.election.status}
-                         </span>
-                      </div>
-                      <p className={`text-sm mb-4 ${darkMode ? "opacity-70" : "text-gray-600"}`}>{vote.election.description}</p>
-                      
-                      <div className="space-y-1">
-                        <div className={`flex items-center text-xs font-mono ${darkMode ? "opacity-60" : "text-gray-500"}`}>
-                           <span className="w-24">Block Hash:</span>
-                           <span className="truncate max-w-[200px] md:max-w-md">{vote.blockHash}</span>
+              dashboardData.upcomingElections?.map(election => (
+                <div key={election.id} className={`rounded-xl border overflow-hidden shadow-sm transition-all ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
+                  <div className="p-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start">
+                      <div className="flex-1 pr-4">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className={`text-xl font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>{election.title}</h3>
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-500/20 text-blue-500 border border-blue-500/30">
+                            UPCOMING
+                          </span>
                         </div>
-                        <div className={`flex items-center text-xs font-mono ${darkMode ? "opacity-60" : "text-gray-500"}`}>
-                           <span className="w-24">Tx Hash:</span>
-                           <span className="truncate max-w-[200px] md:max-w-md">{vote.transactionHash}</span>
+                        <p className={`text-sm mb-4 line-clamp-2 ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+                          {election.description}
+                        </p>
+
+                        <div className="flex flex-wrap gap-4 text-sm">
+                          <div className={`flex items-center gap-2 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                            <span>Starts:</span>
+                            <span className={darkMode ? "text-white" : "text-gray-900"}>
+                              {new Date(election.startDate).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className={`flex items-center gap-2 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                            <span>Ends:</span>
+                            <span className={darkMode ? "text-white" : "text-gray-900"}>
+                              {new Date(election.endDate).toLocaleString()}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="flex flex-col items-end justify-between">
-                       <div className={`text-right text-sm ${darkMode ? "opacity-70" : "text-gray-500"}`}>
-                         <div>Voted At</div>
-                         <div className={`font-medium ${darkMode ? "text-white" : "text-gray-900"}`}>{new Date(vote.votedAt).toLocaleString()}</div>
-                       </div>
-                       
-                       {vote.election.status === 'ended' && (
-                          <button onClick={() => router.push(`/voter/election/${vote.election.id}/results`)} className="mt-4 px-4 py-2 text-sm border border-emerald-500 text-emerald-500 rounded hover:bg-emerald-500 hover:text-white transition-colors">
-                             See Results
-                          </button>
-                       )}
+
+                      <div className="mt-4 md:mt-0 flex flex-col items-end gap-2">
+                        <div className={`text-sm font-medium ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                          Organizer: <span className={darkMode ? "text-emerald-400" : "text-emerald-600"}>{election.organization.username}</span>
+                        </div>
+                        <button disabled className={`px-4 py-2 rounded-lg text-sm font-medium opacity-50 cursor-not-allowed ${darkMode ? "bg-gray-800 text-gray-400" : "bg-gray-200 text-gray-500"}`}>
+                          Not Started Yet
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -936,29 +901,113 @@ export default function VoterDashboard() {
             )}
           </div>
         )}
+
+        {/* --- TAB: INVITATIONS --- */}
+        {activeTab === "invitations" && (
+          <div className="space-y-6">
+            {dashboardData.pendingInvitations.length === 0 ? (
+              <div className={`text-center py-12 rounded-lg border border-dashed ${darkMode ? "border-gray-700 text-gray-400" : "border-gray-300 text-gray-500"}`}>
+                <p>No pending invitations.</p>
+              </div>
+            ) : (
+              dashboardData.pendingInvitations.map((invitation) => (
+                <div key={invitation.id} className={`p-6 rounded-lg border shadow-sm ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className={`text-lg font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>
+                        Invitation to: {invitation.election?.title}
+                      </h3>
+                      <p className={`text-sm mt-1 ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+                        Invited on {new Date(invitation.invitedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => handleInvitationResponse(invitation.id, "accept")}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-sm font-medium transition-colors"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => handleInvitationResponse(invitation.id, "decline")}
+                        className={`px-4 py-2 border rounded-md text-sm font-medium transition-colors ${darkMode ? "border-gray-600 text-gray-300 hover:bg-gray-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* --- TAB: VOTING HISTORY --- */}
+        {activeTab === "history" && (
+          <div className="space-y-6">
+            {voteHistory.length === 0 ? (
+              <div className={`text-center py-12 rounded-lg border border-dashed ${darkMode ? "border-gray-700 text-gray-400" : "border-gray-300 text-gray-500"}`}>
+                <p>No voting history found.</p>
+              </div>
+            ) : (
+              voteHistory.map((history) => (
+                <div key={history.id} className={`p-6 rounded-lg border shadow-sm ${darkMode ? "bg-neutral-900 border-emerald-800" : "bg-white border-gray-200"}`}>
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <h3 className={`text-lg font-bold ${darkMode ? "text-white" : "text-gray-900"}`}>
+                        {history.election.title}
+                      </h3>
+                      <p className={`text-sm mt-1 ${darkMode ? "text-gray-400" : "text-gray-600"}`}>
+                        Voted on: {new Date(history.votedAt).toLocaleString()}
+                      </p>
+                      <div className="mt-4 space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-mono">
+                          <span className={`px-2 py-1 rounded ${darkMode ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-600"}`}>
+                            Tx: {history.transactionHash.substring(0, 20)}...
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-mono">
+                          <span className={`px-2 py-1 rounded ${darkMode ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-600"}`}>
+                            Block: {history.blockHash.substring(0, 20)}...
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end justify-center">
+                      <div className="flex items-center text-emerald-500 font-medium">
+                        <CheckCircle size={20} className="mr-2" />
+                        Recorded on Blockchain
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
       </main>
 
-      <footer className={darkMode ? "mt-auto border-t border-emerald-800/30 py-8 bg-neutral-950/30 text-center text-sm text-emerald-300" : "mt-auto border-t border-gray-200 py-8 bg-white text-center text-sm text-gray-500"}>
-        <div className="max-w-7xl mx-auto px-4">
-          © 2025 BlockVote — Secure blockchain voting
-        </div>
-      </footer>
+      <ProfileSettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        user={userData || user}
+        onUpdate={() => {
+          loadUserProfile();
+          // Optional: refresh user data in local storage if needed
+        }}
+        onLogout={handleLogout}
+        darkMode={darkMode}
+      />
 
-      <VotingModal 
-        isOpen={isVoteModalOpen} 
-        onClose={() => setIsVoteModalOpen(false)} 
+      <VotingModal
+        isOpen={isVoteModalOpen}
+        onClose={() => setIsVoteModalOpen(false)}
         election={selectedElectionForVote}
         darkMode={darkMode}
         onVoteSuccess={handleVoteSuccess}
       />
-      
-      <ProfileSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        darkMode={darkMode}
-        user={userData}
-        onLogout={handleLogout}
-      />
+
     </div>
   );
 }

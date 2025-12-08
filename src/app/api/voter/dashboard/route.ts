@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     // Get user to verify role
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, email: true, username: true } 
+      select: { id: true, role: true, email: true, username: true }
     });
 
     if (!user) {
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     // ------------------------------------------------------------------
     // 2. FETCH DATA
     // ------------------------------------------------------------------
-    
+
     const now = new Date();
 
     // A. Get Pending Invitations
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
         userId: userId,
         inviteStatus: "PENDING", // Matches Prisma Enum
         election: {
-            status: { not: "DRAFT" } 
+          status: { not: "DRAFT" }
         }
       },
       include: {
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       orderBy: { invitedAt: "desc" }
     });
 
-    // B. Get Active Elections (THE FIX IS HERE)
+    // B. Get Active Elections (Started and Active)
     const activeElections = await prisma.election.findMany({
       where: {
         status: "ACTIVE",
@@ -92,16 +92,14 @@ export async function GET(request: NextRequest) {
         endDate: { gte: now },
         OR: [
           {
-            // FIX: Using 'UserElectionParticipation' (Capital U) as per your Schema
             UserElectionParticipation: {
               some: {
                 userId: userId,
-                inviteStatus: "ACCEPTED" // Only show if accepted
+                inviteStatus: "ACCEPTED"
               }
             }
           },
           {
-            // Fallback for public voters
             voters: {
               some: {
                 email: user.email
@@ -118,10 +116,47 @@ export async function GET(request: NextRequest) {
           select: { votes: true, voters: true }
         },
         candidates: {
-            select: { id: true, name: true, description: true }
+          select: { id: true, name: true, description: true }
         }
       },
       orderBy: { endDate: "asc" }
+    });
+
+    // B.2 Get Upcoming Elections (Active but Not Started)
+    const upcomingElections = await prisma.election.findMany({
+      where: {
+        status: "ACTIVE",
+        startDate: { gt: now }, // Starts in the future
+        OR: [
+          {
+            UserElectionParticipation: {
+              some: {
+                userId: userId,
+                inviteStatus: "ACCEPTED"
+              }
+            }
+          },
+          {
+            voters: {
+              some: {
+                email: user.email
+              }
+            }
+          }
+        ]
+      },
+      include: {
+        organization: {
+          select: { id: true, username: true, email: true }
+        },
+        _count: {
+          select: { votes: true, voters: true }
+        },
+        candidates: {
+          select: { id: true, name: true, description: true }
+        }
+      },
+      orderBy: { startDate: "asc" }
     });
 
     // C. Get Voting History
@@ -137,7 +172,7 @@ export async function GET(request: NextRequest) {
 
     // D. Statistics
     const allParticipations = await prisma.userElectionParticipation.findMany({
-        where: { userId: userId }
+      where: { userId: userId }
     });
 
     const totalInvitations = allParticipations.length;
@@ -155,8 +190,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        participations: allParticipations, 
+        participations: allParticipations,
         activeElections,
+        upcomingElections,
         votingHistory,
         pendingInvitations,
         statistics: {
@@ -170,10 +206,10 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     try {
-        log.exception(error as Error, "VOTER_DASHBOARD", {
-            path: "/api/voter/dashboard",
-        });
-    } catch (e) {}
+      log.exception(error as Error, "VOTER_DASHBOARD", {
+        path: "/api/voter/dashboard",
+      });
+    } catch (e) { }
 
     return NextResponse.json(
       { success: false, message: "Internal server error" },
